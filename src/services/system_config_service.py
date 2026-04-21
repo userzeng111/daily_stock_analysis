@@ -21,6 +21,7 @@ from src.config import (
     canonicalize_llm_channel_protocol,
     channel_allows_empty_api_key,
     get_configured_llm_models,
+    model_in_available_model_set,
     normalize_agent_litellm_model,
     normalize_news_strategy_profile,
     normalize_llm_channel_model,
@@ -1360,7 +1361,11 @@ class SystemConfigService:
             return issues
 
         primary_model = (effective_map.get("LITELLM_MODEL") or "").strip()
-        if primary_model and primary_model not in available_model_set and not _uses_direct_env_provider(primary_model):
+        if (
+            primary_model
+            and not model_in_available_model_set(primary_model, available_models, available_model_set)
+            and not _uses_direct_env_provider(primary_model)
+        ):
             issues.append(
                 {
                     "key": "LITELLM_MODEL",
@@ -1384,7 +1389,11 @@ class SystemConfigService:
         if (
             configured_agent_model_raw
             and configured_agent_model
-            and configured_agent_model not in available_model_set
+            and not model_in_available_model_set(
+                configured_agent_model,
+                available_models,
+                available_model_set,
+            )
             and not _uses_direct_env_provider(configured_agent_model)
         ):
             issues.append(
@@ -1409,7 +1418,8 @@ class SystemConfigService:
         ]
         invalid_fallbacks = [
             model for model in fallback_models
-            if model not in available_model_set and not _uses_direct_env_provider(model)
+            if not model_in_available_model_set(model, available_models, available_model_set)
+            and not _uses_direct_env_provider(model)
         ]
         if invalid_fallbacks:
             issues.append(
@@ -1427,7 +1437,11 @@ class SystemConfigService:
             )
 
         vision_model = (effective_map.get("VISION_MODEL") or "").strip()
-        if vision_model and vision_model not in available_model_set and not _uses_direct_env_provider(vision_model):
+        if (
+            vision_model
+            and not model_in_available_model_set(vision_model, available_models, available_model_set)
+            and not _uses_direct_env_provider(vision_model)
+        ):
             issues.append(
                 {
                     "key": "VISION_MODEL",

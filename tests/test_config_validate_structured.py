@@ -280,6 +280,16 @@ class TestValidateStructuredLLM:
         assert all("LITELLM_MODEL" not in i.message for i in matching_issues)
         assert any("主模型" in i.message for i in matching_issues)
 
+    def test_configured_unprefixed_primary_model_matching_openai_channel_is_allowed(self):
+        cfg = _make_config(
+            llm_model_list=[
+                {"model_name": "openai/glm-5.1", "litellm_params": {"model": "openai/glm-5.1", "api_key": "sk-test"}},
+            ],
+            litellm_model="glm-5.1",
+        )
+        issues = cfg.validate_structured()
+        assert not any(i.severity == "error" and i.field == "LITELLM_MODEL" for i in issues)
+
     def test_configured_agent_primary_model_missing_from_channels_is_error(self):
         cfg = _make_config(
             llm_model_list=[

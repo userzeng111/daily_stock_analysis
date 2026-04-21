@@ -267,6 +267,44 @@ def normalize_llm_channel_model(model: str, protocol: Optional[str], base_url: O
     return f"{resolved_protocol}/{normalized_model}"
 
 
+def _split_model_identity(model: str) -> Tuple[str, str]:
+    """Return (provider, name) for semantic model comparisons."""
+    normalized_model = (model or "").strip()
+    if not normalized_model:
+        return "", ""
+    if "/" not in normalized_model:
+        return "", normalized_model.lower()
+    raw_provider, raw_name = normalized_model.split("/", 1)
+    provider = canonicalize_llm_channel_protocol(raw_provider)
+    return provider, raw_name.strip().lower()
+
+
+def model_matches_available_models(model: str, available_models: List[str]) -> bool:
+    """Return True when a selected runtime model matches any declared model.
+
+    Bare selections such as ``glm-5.1`` should be accepted when the active
+    channel declares ``openai/glm-5.1``. Prefixed selections continue to require
+    a provider+name match.
+    """
+    selected_provider, selected_name = _split_model_identity(model)
+    if not selected_name:
+        return False
+
+    for available_model in available_models or []:
+        available_provider, available_name = _split_model_identity(available_model)
+        if not available_name or available_name != selected_name:
+            continue
+        if not selected_provider or selected_provider == available_provider:
+            return True
+    return False
+
+
+def model_in_available_model_set(model: str, available_models: List[str], available_model_set: Optional[set[str]] = None) -> bool:
+    """Fast exact check first, then semantic fallback for bare model names."""
+    normalized_set = available_model_set if available_model_set is not None else set(available_models)
+    return model in normalized_set or model_matches_available_models(model, available_models)
+
+
 def get_configured_llm_models(model_list: List[Dict[str, Any]]) -> List[str]:
     """Return non-legacy model names declared in Router model_list order.
 
@@ -2088,7 +2126,11 @@ class Config:
             if (
                 self.litellm_model
                 and not _uses_direct_env_provider(self.litellm_model)
-                and self.litellm_model not in available_router_model_set
+                and not model_in_available_model_set(
+                    self.litellm_model,
+                    available_router_models,
+                    available_router_model_set,
+                )
             ):
                 issues.append(ConfigIssue(
                     severity="error",
@@ -2103,7 +2145,11 @@ class Config:
                 configured_agent_primary_model
                 and effective_agent_primary_model
                 and not _uses_direct_env_provider(effective_agent_primary_model)
-                and effective_agent_primary_model not in available_router_model_set
+                and not model_in_available_model_set(
+                    effective_agent_primary_model,
+                    available_router_models,
+                    available_router_model_set,
+                )
             ):
                 issues.append(ConfigIssue(
                     severity="error",
@@ -2116,7 +2162,12 @@ class Config:
 
             invalid_fallbacks = [
                 model for model in (self.litellm_fallback_models or [])
-                if model and model not in available_router_model_set
+                if model
+                and not model_in_available_model_set(
+                    model,
+                    available_router_models,
+                    available_router_model_set,
+                )
                 and not _uses_direct_env_provider(model)
             ]
             if invalid_fallbacks:
@@ -2132,7 +2183,11 @@ class Config:
             if (
                 self.vision_model
                 and not _uses_direct_env_provider(self.vision_model)
-                and self.vision_model not in available_router_model_set
+                and not model_in_available_model_set(
+                    self.vision_model,
+                    available_router_models,
+                    available_router_model_set,
+                )
             ):
                 issues.append(ConfigIssue(
                     severity="warning",

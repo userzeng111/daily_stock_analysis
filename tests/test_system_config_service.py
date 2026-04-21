@@ -292,6 +292,21 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertFalse(validation["valid"])
         self.assertTrue(any(issue["key"] == "LITELLM_MODEL" and issue["code"] == "unknown_model" for issue in validation["issues"]))
 
+    def test_validate_accepts_unprefixed_primary_model_when_channel_declares_openai_model(self) -> None:
+        validation = self.service.validate(
+            items=[
+                {"key": "LLM_CHANNELS", "value": "udcode"},
+                {"key": "LLM_UDCODE_PROTOCOL", "value": "openai"},
+                {"key": "LLM_UDCODE_BASE_URL", "value": "https://api.udcode.cn/v1"},
+                {"key": "LLM_UDCODE_API_KEY", "value": "sk-test-value"},
+                {"key": "LLM_UDCODE_MODELS", "value": "glm-5.1"},
+                {"key": "LITELLM_MODEL", "value": "glm-5.1"},
+            ]
+        )
+
+        self.assertTrue(validation["valid"], validation["issues"])
+        self.assertEqual(validation["issues"], [])
+
     def test_validate_reports_unknown_agent_primary_model_for_channels(self) -> None:
         validation = self.service.validate(
             items=[

@@ -609,6 +609,26 @@ function buildModelOptions(models: string[], selectedModel: string, autoLabel: s
   return options;
 }
 
+function runtimeModelMatchesAvailable(model: string, availableModels: string[]): boolean {
+  const trimmedModel = model.trim();
+  if (!trimmedModel) {
+    return false;
+  }
+
+  const selected = parseModelRef(trimmedModel);
+  if (!selected.name) {
+    return false;
+  }
+
+  return availableModels.some((availableModel) => {
+    const available = parseModelRef(availableModel);
+    if (!available.name || available.name !== selected.name) {
+      return false;
+    }
+    return !selected.hasProvider || selected.provider === available.provider;
+  });
+}
+
 const MANAGED_PROVIDERS = new Set(['gemini', 'vertex_ai', 'anthropic', 'openai', 'deepseek']);
 
 function usesDirectEnvProvider(model: string): boolean {
@@ -951,7 +971,7 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
 
     if (managesRuntimeConfig && availableModels.length > 0) {
       const invalidPrimaryModel = runtimeConfig.primaryModel
-        && !availableModels.includes(runtimeConfig.primaryModel)
+        && !runtimeModelMatchesAvailable(runtimeConfig.primaryModel, availableModels)
         && !usesDirectEnvProvider(runtimeConfig.primaryModel);
       if (invalidPrimaryModel) {
         setSaveMessage({ type: 'local-error', text: '当前主模型不在已启用渠道的模型列表中，请重新选择。' });
@@ -959,7 +979,7 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
       }
 
       const invalidAgentPrimaryModel = runtimeConfig.agentPrimaryModel
-        && !availableModels.includes(runtimeConfig.agentPrimaryModel)
+        && !runtimeModelMatchesAvailable(runtimeConfig.agentPrimaryModel, availableModels)
         && !usesDirectEnvProvider(runtimeConfig.agentPrimaryModel);
       if (invalidAgentPrimaryModel) {
         setSaveMessage({ type: 'local-error', text: '当前 Agent 主模型不在已启用渠道的模型列表中，请重新选择。' });
@@ -967,7 +987,7 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
       }
 
       const invalidFallbackModel = runtimeConfig.fallbackModels.some(
-        (model) => !availableModels.includes(model) && !usesDirectEnvProvider(model),
+        (model) => !runtimeModelMatchesAvailable(model, availableModels) && !usesDirectEnvProvider(model),
       );
       if (invalidFallbackModel) {
         setSaveMessage({ type: 'local-error', text: '存在无效的备选模型，请重新选择。' });
@@ -975,7 +995,7 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
       }
 
       const invalidVisionModel = runtimeConfig.visionModel
-        && !availableModels.includes(runtimeConfig.visionModel)
+        && !runtimeModelMatchesAvailable(runtimeConfig.visionModel, availableModels)
         && !usesDirectEnvProvider(runtimeConfig.visionModel);
       if (invalidVisionModel) {
         setSaveMessage({ type: 'local-error', text: '当前 Vision 模型不在已启用渠道的模型列表中，请重新选择。' });

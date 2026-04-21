@@ -117,6 +117,29 @@ LITELLM_MODEL=ollama/qwen3:8b
 - 如果你通过 OpenAI Compatible 渠道接 MiniMax，请在渠道模型里直接填写 `minimax/<模型名>`，例如 `minimax/MiniMax-M1`。
 - Web 设置页里的主模型、Agent 主模型、Fallback、Vision 下拉会保留这个值原样展示，不会再错误改写成 `openai/minimax/<模型名>`。
 
+### 示例：接入 UDCODE 这类 OpenAI Compatible 网关（如 `api.udcode.cn`）
+
+如果第三方平台文档给的是 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL` 这类命名，但接口实际兼容 OpenAI Chat Completions，那么在本项目里仍应按 **OpenAI Compatible 渠道** 配置，而不是新增一套 `ANTHROPIC_*` 专用变量。
+
+```env
+LLM_CHANNELS=udcode
+
+LLM_UDCODE_PROTOCOL=openai
+LLM_UDCODE_BASE_URL=https://api.udcode.cn/v1
+LLM_UDCODE_API_KEY=sk-your-token
+LLM_UDCODE_MODELS=glm-5.1
+
+LITELLM_MODEL=glm-5.1
+```
+
+对应关系如下：
+
+- 平台文档里的 `ANTHROPIC_AUTH_TOKEN` → 这里填 `LLM_UDCODE_API_KEY`
+- 平台文档里的 `ANTHROPIC_BASE_URL` → 这里填 `LLM_UDCODE_BASE_URL`
+- 平台文档里的 `ANTHROPIC_MODEL` / `ANTHROPIC_DEFAULT_*_MODEL` → 这里填 `LLM_UDCODE_MODELS`
+
+> 说明：当前版本会把 `glm-5.1` 这类裸模型名与渠道里归一化后的 `openai/glm-5.1` 视为等价，因此无论你在 Web 设置页还是 `.env` 中填写裸模型名，都不会再被误判为“模型未出现在当前渠道中”。
+
 > **致命避坑说明**：如果你启用了 `LLM_CHANNELS`，那么你直接写在外面的 `DEEPSEEK_API_KEY` 或 `OPENAI_API_KEY` 将**全部失效（系统一律无视）**！二者**选其一即可**，千万不要既写了新手模式又写了渠道模式结果产生冲突。
 
 ---

@@ -406,4 +406,43 @@ describe('LLMChannelEditor', () => {
       expect(screen.queryByLabelText('stale-openai')).not.toBeInTheDocument();
     });
   });
+
+  it('accepts bare openai-compatible runtime models that match channel models after normalization', async () => {
+    update.mockResolvedValue({
+      success: true,
+      configVersion: 'v2',
+      appliedCount: 1,
+      skippedMaskedCount: 0,
+      reloadTriggered: true,
+      updatedKeys: ['LITELLM_MODEL'],
+      warnings: [],
+    });
+
+    render(
+      <LLMChannelEditor
+        items={[
+          { key: 'LLM_CHANNELS', value: 'udcode' },
+          { key: 'LLM_UDCODE_PROTOCOL', value: 'openai' },
+          { key: 'LLM_UDCODE_BASE_URL', value: 'https://api.udcode.cn/v1' },
+          { key: 'LLM_UDCODE_ENABLED', value: 'true' },
+          { key: 'LLM_UDCODE_API_KEY', value: 'sk-test-udcode' },
+          { key: 'LLM_UDCODE_MODELS', value: 'glm-5.1' },
+          { key: 'LITELLM_MODEL', value: 'glm-5.1' },
+        ]}
+        configVersion="v1"
+        maskToken="******"
+        onSaved={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /udcode/i }));
+    fireEvent.change(screen.getByLabelText('API Key'), { target: { value: 'sk-test-udcode-updated' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存 AI 配置' }));
+
+    await waitFor(() => {
+      expect(update).toHaveBeenCalled();
+    });
+
+    expect(screen.queryByText('当前主模型不在已启用渠道的模型列表中，请重新选择。')).not.toBeInTheDocument();
+  });
 });

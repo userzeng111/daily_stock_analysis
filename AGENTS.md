@@ -6,6 +6,9 @@
 
 ## 1. 硬规则
 
+- 复杂任务必须自动使用 Agent Teams 团队模式或者subagent模式工作，先分析好需要的角色，然后并行启动。
+- agent Teams的角色选用模型在没有指定的情况下，默认为当前使用的模型，模型等级由你决定。
+
 - 遵循现有目录边界：
   - 后端逻辑优先放在 `src/`、`data_provider/`、`api/`、`bot/`
   - Web 前端改动在 `apps/dsa-web/`
@@ -24,7 +27,44 @@
 - 变更中英双语文档之一时，需评估另一份是否需要同步；若未同步，交付说明里要写明原因。
 - 注释、docstring、日志文案以清晰准确为准，不强制要求英文，但应与文件语境保持一致。
 
-## 2. AI 协作资产治理
+## 2. 问题记录与归档
+
+- 仅项目问题需要记录；非项目问题不记录。
+- 提示词/规则文档修改不记录问题文档，不进入 `worklog/active` 与 `worklog/archive`。
+- 记录必须保存在当前目录下：`<主目录，记录任务计划>/worklog/`。
+- 目录结构：
+	- `worklog/active/`：进行中的问题。
+	- `worklog/archive/`：已完成问题。
+	- `worklog/index.md`：当前未完成问题索引（active）。
+	- `worklog/history.md`：历史归档问题索引（archive）。
+- 分类方式：按主题分类存储。
+	- 活跃问题：`worklog/active/<主题>/<YYYYMMDD-序号-标题>.md`
+	- 已归档问题：`worklog/archive/<主题>/<YYYYMMDD-序号-标题>.md`
+- 新问题必须新建文档，不复用旧文档。
+- `worklog/active/...` 问题文档中必须至少记录：
+	- 问题标题
+	- 用户原始诉求
+	- 当前状态
+- 问题完成后必须及时归档，并同步更新 `worklog/index.md` 与 `worklog/history.md`。
+- 只有当相关工作已完成，且用户明确同意收口时，才允许把 `worklog/active/...` 移动到 `worklog/archive/...`。
+- 若相关工作未完成，或用户未明确同意收口，则保持在 `worklog/active/`，禁止提前归档。
+- `worklog/index.md` 仅保留当前未完成问题，不包含已归档历史。
+- `worklog/history.md` 仅保留已归档问题，不包含进行中问题。
+- `worklog/index.md` 只保留“标题 + 路径 + 一句话摘要”。
+- `worklog/history.md` 只保留“标题 + 路径 + 一句话摘要”。
+- 两个索引都不得写入长过程、命令流水或大段输出。
+
+
+
+## 3. Token 控制与上下文管理
+
+- 不将所有历史记录堆在同一文档。
+- 当前轮默认仅引用：
+	- 当前问题文档（`worklog/active/...`）
+	- 索引摘要（`worklog/index.md`）
+- 其他文档按需读取，用到再查，不做全量回读。
+- 需要查历史时，先读取 `worklog/history.md` 再按路径回查 `worklog/archive/...` 全文。
+## 4. AI 协作资产治理
 
 - `AGENTS.md` 是仓库内 AI 协作规则的唯一真源。
 - `CLAUDE.md` 必须是指向 `AGENTS.md` 的软链接，用于兼容 Claude 生态。
@@ -38,7 +78,7 @@
 python scripts/check_ai_assets.py
 ```
 
-## 3. 仓库速览
+## 5. 仓库速览
 
 - 项目定位：股票智能分析系统，覆盖 A 股、港股、美股。
 - 主流程：抓取数据 -> 技术分析/新闻检索 -> LLM 分析 -> 生成报告 -> 通知推送。
@@ -62,7 +102,7 @@ python scripts/check_ai_assets.py
   - `tests/`：pytest 测试
   - `docs/`：文档与说明
 
-## 4. 常用命令
+## 6. 常用命令
 
 ### 运行应用
 
@@ -109,7 +149,7 @@ gh pr checks <pr_number>
 gh run view <run_id> --log-failed
 ```
 
-## 5. 默认工作流
+## 7. 默认工作流
 
 1. 先判断任务类型：`fix / feat / refactor / docs / chore / test / review`
 2. 先读现有实现、配置、测试、脚本、工作流和文档，再动手修改。
@@ -126,7 +166,7 @@ gh run view <run_id> --log-failed
    - 风险点
    - 回滚方式
 
-## 6. 验证矩阵
+## 8. 验证矩阵
 
 ### CI 覆盖原则
 
@@ -183,7 +223,7 @@ gh run view <run_id> --log-failed
   - 优先确认 timeout、retry、fallback、异常文案、降级路径是否仍然成立。
   - 若未执行在线验证，必须明确写出原因。
 
-## 7. 稳定性护栏
+## 9. 稳定性护栏
 
 - 配置与运行入口：
   - 修改 `.env` 语义、默认值、CLI 参数、服务启动方式、调度语义时，要同时评估本地运行、Docker、GitHub Actions、API、Web、Desktop 的影响。
@@ -206,40 +246,4 @@ gh run view <run_id> --log-failed
   - 修改自动 tag、Release、Docker 发布、日常分析或桌面端打包流程时，要评估触发条件、产物路径、权限边界和回滚方式。
   - 自动 tag 默认保持 opt-in：只有 commit title 含 `#patch`、`#minor`、`#major` 才触发版本号更新，除非需求明确要求改变发布策略。
 
-## 8. Issue / PR / Skill 工作流
 
-- 仓库内已有以下 skill，可优先复用：
-  - `.claude/skills/analyze-issue/SKILL.md`
-  - `.claude/skills/analyze-pr/SKILL.md`
-  - `.claude/skills/fix-issue/SKILL.md`
-- 如果任务明确是 issue 分析、PR 审查、issue 修复，优先按对应 skill 执行，并将产物保存到 `.claude/reviews/`。
-- skill 中的命令、模板、验证顺序和交付结构必须与 `AGENTS.md` 保持一致。
-- skill 默认优先读取 CI / 工作流证据，再决定是否补本地验证。
-- skill 不得默认执行 `git pull`、`git push`、`git tag`、`gh pr create` 等会改变远端或当前分支状态的操作；这些操作必须要求用户确认。
-- PR 审查默认顺序：
-  1. 必要性
-  2. 关联性
-  3. 描述完整性（对照 `.github/PULL_REQUEST_TEMPLATE.md`）
-  4. 验证证据
-  5. 实现正确性
-  6. 合入判定
-- 对 `fix` 类 PR，必须说明：原问题、根因、修复点、回归风险。
-- 合入阻断条件：
-  - 正确性或安全性问题
-  - 阻断型 CI 未通过
-  - PR 描述与实际改动内容实质性矛盾
-  - 缺少回滚方案
-
-## 9. 交付与发布
-
-- 默认交付结构：
-  - `改了什么`
-  - `为什么这么改`
-  - `验证情况`
-  - `未验证项`
-  - `风险点`
-  - `回滚方式`
-- 如果是 `docs` 任务，可直接写：`Docs only, tests not run`，但仍需说明是否核对了命令和文件名。
-- 自动 tag 默认不触发，只有 commit title 包含 `#patch`、`#minor`、`#major` 才会触发版本号更新。
-- 手动打 tag 必须使用 annotated tag。
-- 用户可见变更优先通过 PR 合入，并补齐 label 与验证说明。

@@ -117,6 +117,29 @@ LITELLM_MODEL=ollama/qwen3:8b
 - If you access MiniMax through an OpenAI-compatible channel, enter the model as `minimax/<model-name>` in the channel model list, for example `minimax/MiniMax-M1`.
 - The Web settings page now keeps that value unchanged in Primary, Agent Primary, Fallback, and Vision selectors instead of rewriting it to `openai/minimax/<model-name>`.
 
+### Example: Connecting an OpenAI-Compatible Gateway Such as `api.udcode.cn`
+
+If a provider's docs use names like `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, and `ANTHROPIC_MODEL`, but the actual endpoint is OpenAI-compatible, configure it here as an **OpenAI-compatible channel** instead of introducing a separate `ANTHROPIC_*` config path.
+
+```env
+LLM_CHANNELS=udcode
+
+LLM_UDCODE_PROTOCOL=openai
+LLM_UDCODE_BASE_URL=https://api.udcode.cn/v1
+LLM_UDCODE_API_KEY=sk-your-token
+LLM_UDCODE_MODELS=glm-5.1
+
+LITELLM_MODEL=glm-5.1
+```
+
+Mapping:
+
+- `ANTHROPIC_AUTH_TOKEN` in the provider docs → `LLM_UDCODE_API_KEY`
+- `ANTHROPIC_BASE_URL` in the provider docs → `LLM_UDCODE_BASE_URL`
+- `ANTHROPIC_MODEL` / `ANTHROPIC_DEFAULT_*_MODEL` in the provider docs → `LLM_UDCODE_MODELS`
+
+> Note: the current runtime treats bare model names such as `glm-5.1` as equivalent to the normalized channel model `openai/glm-5.1`, so the settings page and backend validation will no longer reject that configuration as an unknown model.
+
 > **Critical Warning**: If you enable `LLM_CHANNELS`, any standard `DEEPSEEK_API_KEY` or `OPENAI_API_KEY` declared independently will be **completely ignored**. **Use only one mode** to prevent configuration conflicts.
 
 ---
