@@ -17,6 +17,7 @@ import hashlib
 import json
 import logging
 import re
+import threading
 import time
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple, Callable, TypeVar
@@ -396,6 +397,205 @@ class BacktestSummary(Base):
     )
 
 
+class WatchTarget(Base):
+    """持续监测目标（股票 / ETF / 主题）。"""
+
+    __tablename__ = 'watch_targets'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    target_kind = Column(String(16), nullable=False, index=True)  # stock / etf / theme
+    target_key = Column(String(64), nullable=False, index=True)  # normalized code or theme id
+    display_name = Column(String(80), nullable=False)
+    status = Column(String(24), nullable=False, default='active', index=True)  # active / paused / unsupported
+    theme_id = Column(String(64), index=True)
+    theme_name = Column(String(80))
+    source = Column(String(32), nullable=False, default='manual', index=True)
+    notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
+
+    __table_args__ = (
+        UniqueConstraint('target_kind', 'target_key', name='uix_watch_target_kind_key'),
+        Index('ix_watch_target_status', 'status', 'target_kind'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'target_kind': self.target_kind,
+            'target_key': self.target_key,
+            'display_name': self.display_name,
+            'status': self.status,
+            'theme_id': self.theme_id,
+            'theme_name': self.theme_name,
+            'source': self.source,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class WatchTargetMember(Base):
+    """Expanded member basket of one watch target."""
+
+    __tablename__ = 'watch_target_members'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    target_id = Column(Integer, ForeignKey('watch_targets.id'), nullable=False, index=True)
+    member_kind = Column(String(16), nullable=False, index=True)  # stock / etf
+    member_code = Column(String(16), nullable=False, index=True)
+    member_name = Column(String(80), nullable=False)
+    weight = Column(Float, nullable=False, default=1.0)
+    source = Column(String(32), nullable=False, default='catalog')
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
+
+    __table_args__ = (
+        UniqueConstraint('target_id', 'member_code', name='uix_watch_target_member_code'),
+        Index('ix_watch_member_target_kind', 'target_id', 'member_kind'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'target_id': self.target_id,
+            'member_kind': self.member_kind,
+            'member_code': self.member_code,
+            'member_name': self.member_name,
+            'weight': self.weight,
+            'source': self.source,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class WatchTargetSnapshot(Base):
+    """Persisted watch target summary snapshot."""
+
+    __tablename__ = 'watch_target_snapshots'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    target_id = Column(Integer, ForeignKey('watch_targets.id'), nullable=False, index=True)
+    summary_window_days = Column(Integer, nullable=False, default=7, index=True)
+    status = Column(String(24), nullable=False, default='pending', index=True)  # pending / ready / failed
+    payload_json = Column(Text)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
+
+    __table_args__ = (
+        UniqueConstraint('target_id', 'summary_window_days', name='uix_watch_target_snapshot_window'),
+        Index('ix_watch_target_snapshot_target_window', 'target_id', 'summary_window_days'),
+    )
+
+    @property
+    def payload(self) -> Any:
+        if not self.payload_json:
+            return None
+        try:
+            return json.loads(self.payload_json)
+        except Exception:
+            return self.payload_json
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'target_id': self.target_id,
+            'summary_window_days': self.summary_window_days,
+            'status': self.status,
+            'payload': self.payload,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class WatchSignalEvent(Base):
+    """Candidate signal event emitted by watch scans."""
+
+    __tablename__ = 'watch_signal_events'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    target_id = Column(Integer, ForeignKey('watch_targets.id'), nullable=False, index=True)
+    member_id = Column(Integer, ForeignKey('watch_target_members.id'), index=True)
+    member_code = Column(String(16), nullable=False, index=True)
+    member_name = Column(String(80))
+    signal_date = Column(Date, nullable=False, index=True)
+    signal_type = Column(String(32), nullable=False, index=True)
+    signal_score = Column(Float)
+    status = Column(String(24), nullable=False, default='candidate', index=True)  # candidate / ignored / reviewed
+    dedupe_key = Column(String(128), nullable=False, unique=True, index=True)
+    payload_json = Column(Text)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
+
+    __table_args__ = (
+        UniqueConstraint('dedupe_key', name='uix_watch_signal_dedupe_key'),
+        Index('ix_watch_signal_target_date', 'target_id', 'signal_date'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        payload: Any = None
+        if self.payload_json:
+            try:
+                payload = json.loads(self.payload_json)
+            except Exception:
+                payload = self.payload_json
+        return {
+            'id': self.id,
+            'target_id': self.target_id,
+            'member_id': self.member_id,
+            'member_code': self.member_code,
+            'member_name': self.member_name,
+            'signal_date': self.signal_date.isoformat() if self.signal_date else None,
+            'signal_type': self.signal_type,
+            'signal_score': self.signal_score,
+            'status': self.status,
+            'dedupe_key': self.dedupe_key,
+            'payload': payload,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class WatchReviewResult(Base):
+    """LLM / human review result for one watch signal event."""
+
+    __tablename__ = 'watch_review_results'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    signal_event_id = Column(Integer, ForeignKey('watch_signal_events.id'), nullable=False, index=True)
+    review_round = Column(Integer, nullable=False, default=1, index=True)
+    decision = Column(String(24), nullable=False, index=True)  # buyable / watch_more / reject
+    confidence = Column(Float)
+    summary = Column(Text)
+    payload_json = Column(Text)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
+
+    __table_args__ = (
+        UniqueConstraint('signal_event_id', 'review_round', name='uix_watch_review_event_round'),
+        Index('ix_watch_review_event_round', 'signal_event_id', 'review_round'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        payload: Any = None
+        if self.payload_json:
+            try:
+                payload = json.loads(self.payload_json)
+            except Exception:
+                payload = self.payload_json
+        return {
+            'id': self.id,
+            'signal_event_id': self.signal_event_id,
+            'review_round': self.review_round,
+            'decision': self.decision,
+            'confidence': self.confidence,
+            'summary': self.summary,
+            'payload': payload,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class PortfolioAccount(Base):
     """Portfolio account metadata."""
 
@@ -636,6 +836,7 @@ class DatabaseManager:
     
     _instance: Optional['DatabaseManager'] = None
     _initialized: bool = False
+    _instance_lock = threading.RLock()
     
     def __new__(cls, *args, **kwargs):
         """单例模式实现"""
@@ -701,18 +902,23 @@ class DatabaseManager:
     @classmethod
     def get_instance(cls) -> 'DatabaseManager':
         """获取单例实例"""
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-    
+        if cls._instance is not None and getattr(cls._instance, '_initialized', False):
+            return cls._instance
+
+        with cls._instance_lock:
+            if cls._instance is None or not getattr(cls._instance, '_initialized', False):
+                cls._instance = cls()
+            return cls._instance
+
     @classmethod
     def reset_instance(cls) -> None:
         """重置单例（用于测试）"""
-        if cls._instance is not None:
-            if hasattr(cls._instance, '_engine') and cls._instance._engine is not None:
-                cls._instance._engine.dispose()
-            cls._instance._initialized = False
-            cls._instance = None
+        with cls._instance_lock:
+            if cls._instance is not None:
+                if hasattr(cls._instance, '_engine') and cls._instance._engine is not None:
+                    cls._instance._engine.dispose()
+                cls._instance._initialized = False
+                cls._instance = None
 
     @classmethod
     def _cleanup_engine(cls, engine) -> None:

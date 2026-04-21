@@ -766,10 +766,24 @@ Set the following variables in `.env` (all optional, have defaults):
 | `BACKTEST_MIN_AGE_DAYS` | `14` | Only backtest records older than N days to avoid incomplete data |
 | `BACKTEST_ENGINE_VERSION` | `v1` | Engine version, used to distinguish results when logic is updated |
 | `BACKTEST_NEUTRAL_BAND_PCT` | `2.0` | Neutral band threshold (%), ±2% treated as range-bound |
+| `WATCHLIST_SCAN_INTERVAL_MINUTES` | `45` | Background polling interval in minutes for the Web watch module (minimum 5; lower values are clamped to 5) |
 
 ### Auto-run
 
 Backtesting triggers automatically after the daily analysis flow completes (non-blocking; failures do not affect notifications). It can also be triggered manually via API.
+
+### Watch Module
+
+The Web UI now includes a `/watch` page for continuous monitoring of stocks, ETFs, and curated themes:
+
+- add a stock code, ETF code, or built-in theme name as a watch target
+- detect staged buy-point candidates from the latest 30 trading bars
+- persist candidate events together with one structured review result
+- control the background polling cadence through `WATCHLIST_SCAN_INTERVAL_MINUTES` (minimum 5 minutes), while start/stop remains available in the page itself
+- show a 7-trading-day summary directly on each watch target card
+- open an in-page detail panel on target click, with `7-day / 30-day` switching
+- display K-line data together with MA/MACD/RSI/volume-price strategy indicators and the latest review result
+- for theme targets, show the theme-level summary first and then default to a representative member while still allowing member switching
 
 ### Evaluation Metrics
 

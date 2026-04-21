@@ -1,0 +1,58 @@
+[
+  {
+    "theme_id": "compute_power",
+    "display_name": "算力",
+    "description": "AI 算力基础设施链条，覆盖服务器、数据中心和算力平台。",
+    "aliases": ["AI算力", "算力基础设施"],
+    "members": [
+      {"code": "000977", "name": "浪潮信息", "kind": "stock"},
+      {"code": "603019", "name": "中科曙光", "kind": "stock"},
+      {"code": "002230", "name": "科大讯飞", "kind": "stock"}
+    ],
+    "etfs": [
+      {"code": "512720", "name": "计算机ETF", "kind": "etf"}
+    ]
+  },
+  {
+    "theme_id": "cpo_optical_module",
+    "display_name": "CPO/光模块",
+    "description": "AI 服务器高速互联与光通信器件链条。",
+    "aliases": ["光模块", "光通信", "CPO"],
+    "members": [
+      {"code": "300308", "name": "中际旭创", "kind": "stock"},
+      {"code": "300502", "name": "新易盛", "kind": "stock"},
+      {"code": "300394", "name": "天孚通信", "kind": "stock"}
+    ],
+    "etfs": [
+      {"code": "515880", "name": "通信ETF", "kind": "etf"}
+    ]
+  },
+  {
+    "theme_id": "robotics",
+    "display_name": "机器人",
+    "description": "工业机器人、核心零部件和智能制造方向。",
+    "aliases": ["工业机器人", "智能机器人"],
+    "members": [
+      {"code": "300024", "name": "机器人", "kind": "stock"},
+      {"code": "002747", "name": "埃斯顿", "kind": "stock"},
+      {"code": "688017", "name": "绿的谐波", "kind": "stock"}
+    ],
+    "etfs": [
+      {"code": "159770", "name": "机器人ETF", "kind": "etf"}
+    ]
+  },
+  {
+    "theme_id": "semiconductor",
+    "display_name": "半导体",
+    "description": "半导体设计、制造、设备与材料产业链。",
+    "aliases": ["芯片", "集成电路"],
+    "members": [
+      {"code": "603986", "name": "兆易创新", "kind": "stock"},
+      {"code": "002371", "name": "北方华创", "kind": "stock"},
+      {"code": "688981", "name": "中芯国际", "kind": "stock"}
+    ],
+    "etfs": [
+      {"code": "512480", "name": "半导体ETF", "kind": "etf"}
+    ]
+  }
+]

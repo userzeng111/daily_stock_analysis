@@ -18,6 +18,13 @@ from sqlalchemy.orm import Session
 from src.storage import DatabaseManager
 from src.config import get_config, Config
 from src.services.system_config_service import SystemConfigService
+from src.services.watch_event_bus import WatchEventBus
+from src.services.watch_detail_service import WatchDetailService
+from src.services.watch_review_service import WatchReviewService
+from src.services.watch_runtime_service import WatchRuntimeService
+from src.services.watch_signal_service import WatchSignalService
+from src.services.watch_summary_service import WatchSummaryService
+from src.services.watchlist_service import WatchlistService
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -68,4 +75,75 @@ def get_system_config_service(request: Request) -> SystemConfigService:
     if service is None:
         service = SystemConfigService()
         request.app.state.system_config_service = service
+    return service
+
+
+def get_watch_event_bus(request: Request) -> WatchEventBus:
+    """Get shared watch event bus instance."""
+    bus = getattr(request.app.state, "watch_event_bus", None)
+    if bus is None:
+        bus = WatchEventBus()
+        request.app.state.watch_event_bus = bus
+    return bus
+
+
+def get_watch_review_service(request: Request) -> WatchReviewService:
+    """Get shared watch review service instance."""
+    service = getattr(request.app.state, "watch_review_service", None)
+    if service is None:
+        service = WatchReviewService(db_manager=get_database_manager())
+        request.app.state.watch_review_service = service
+    return service
+
+
+def get_watch_runtime_service(request: Request) -> WatchRuntimeService:
+    """Get shared watch runtime service instance."""
+    service = getattr(request.app.state, "watch_runtime_service", None)
+    if service is None:
+        event_bus = get_watch_event_bus(request)
+        review_service = get_watch_review_service(request)
+        db_manager = get_database_manager()
+        signal_service = WatchSignalService(db_manager=db_manager)
+        summary_service = get_watch_summary_service(request)
+        service = WatchRuntimeService(
+            db_manager=db_manager,
+            signal_service=signal_service,
+            review_service=review_service,
+            summary_service=summary_service,
+            event_bus=event_bus,
+        )
+        request.app.state.watch_runtime_service = service
+    return service
+
+
+def get_watchlist_service(request: Request) -> WatchlistService:
+    """Get shared watchlist service instance."""
+    service = getattr(request.app.state, "watchlist_service", None)
+    if service is None:
+        service = WatchlistService(
+            db_manager=get_database_manager(),
+            summary_service=get_watch_summary_service(request),
+        )
+        request.app.state.watchlist_service = service
+    return service
+
+
+def get_watch_summary_service(request: Request) -> WatchSummaryService:
+    """Get shared watch summary service instance."""
+    service = getattr(request.app.state, "watch_summary_service", None)
+    if service is None:
+        service = WatchSummaryService(db_manager=get_database_manager())
+        request.app.state.watch_summary_service = service
+    return service
+
+
+def get_watch_detail_service(request: Request) -> WatchDetailService:
+    """Get shared watch detail service instance."""
+    service = getattr(request.app.state, "watch_detail_service", None)
+    if service is None:
+        service = WatchDetailService(
+            db_manager=get_database_manager(),
+            repo=get_watchlist_service(request).repo,
+        )
+        request.app.state.watch_detail_service = service
     return service

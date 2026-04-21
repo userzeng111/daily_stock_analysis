@@ -41,6 +41,9 @@ async def app_lifespan(app: FastAPI):
     try:
         yield
     finally:
+        runtime_service = getattr(app.state, "watch_runtime_service", None)
+        if runtime_service is not None and hasattr(runtime_service, "shutdown"):
+            runtime_service.shutdown()
         if hasattr(app.state, "system_config_service"):
             delattr(app.state, "system_config_service")
 

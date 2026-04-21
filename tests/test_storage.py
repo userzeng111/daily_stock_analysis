@@ -212,5 +212,51 @@ class TestStorage(unittest.TestCase):
             temp_dir.cleanup()
             DatabaseManager.reset_instance()
 
+    def test_get_instance_is_safe_under_concurrent_first_access(self):
+        DatabaseManager.reset_instance()
+        temp_dir = tempfile.TemporaryDirectory()
+        db_path = os.path.join(temp_dir.name, "sqlite_singleton_race.db")
+        original_env = os.environ.get("DATABASE_PATH")
+        os.environ["DATABASE_PATH"] = db_path
+        Config.reset_instance()
+
+        instances = []
+        failures = []
+        start_barrier = threading.Barrier(2)
+        result_lock = threading.Lock()
+
+        def worker() -> None:
+            try:
+                start_barrier.wait()
+                instance = DatabaseManager.get_instance()
+                session = instance.get_session()
+                session.close()
+                with result_lock:
+                    instances.append(instance)
+            except Exception as exc:  # pragma: no cover - failure path asserted below
+                with result_lock:
+                    failures.append(exc)
+
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        try:
+            self.assertEqual(failures, [])
+            self.assertEqual(len(instances), 2)
+            self.assertIs(instances[0], instances[1])
+            self.assertTrue(getattr(instances[0], "_initialized", False))
+            self.assertTrue(hasattr(instances[0], "_SessionLocal"))
+        finally:
+            if original_env is None:
+                os.environ.pop("DATABASE_PATH", None)
+            else:
+                os.environ["DATABASE_PATH"] = original_env
+            temp_dir.cleanup()
+            DatabaseManager.reset_instance()
+            Config.reset_instance()
+
 if __name__ == '__main__':
     unittest.main()

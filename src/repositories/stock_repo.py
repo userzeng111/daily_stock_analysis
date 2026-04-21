@@ -16,6 +16,7 @@ from typing import Optional, List, Dict, Any
 import pandas as pd
 from sqlalchemy import and_, desc, select
 
+from data_provider.base import canonical_stock_code, normalize_stock_code
 from src.storage import DatabaseManager, StockDaily
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,11 @@ class StockRepository:
             StockDaily 对象列表（按日期降序）
         """
         try:
-            return self.db.get_latest_data(code, days)
+            for candidate in self._candidate_codes(code):
+                rows = self.db.get_latest_data(candidate, days)
+                if rows:
+                    return rows
+            return []
         except Exception as e:
             logger.error(f"获取最新数据失败: {e}")
             return []
@@ -141,21 +146,52 @@ class StockRepository:
     def get_start_daily(self, *, code: str, analysis_date: date) -> Optional[StockDaily]:
         """Return StockDaily for analysis_date (preferred) or nearest previous date."""
         with self.db.get_session() as session:
-            row = session.execute(
-                select(StockDaily)
-                .where(and_(StockDaily.code == code, StockDaily.date <= analysis_date))
-                .order_by(desc(StockDaily.date))
-                .limit(1)
-            ).scalar_one_or_none()
-            return row
+            for candidate in self._candidate_codes(code):
+                row = session.execute(
+                    select(StockDaily)
+                    .where(and_(StockDaily.code == candidate, StockDaily.date <= analysis_date))
+                    .order_by(desc(StockDaily.date))
+                    .limit(1)
+                ).scalar_one_or_none()
+                if row is not None:
+                    return row
+            return None
 
     def get_forward_bars(self, *, code: str, analysis_date: date, eval_window_days: int) -> List[StockDaily]:
         """Return forward daily bars after analysis_date, up to eval_window_days."""
         with self.db.get_session() as session:
-            rows = session.execute(
-                select(StockDaily)
-                .where(and_(StockDaily.code == code, StockDaily.date > analysis_date))
-                .order_by(StockDaily.date)
-                .limit(eval_window_days)
-            ).scalars().all()
-            return list(rows)
+            for candidate in self._candidate_codes(code):
+                rows = session.execute(
+                    select(StockDaily)
+                    .where(and_(StockDaily.code == candidate, StockDaily.date > analysis_date))
+                    .order_by(StockDaily.date)
+                    .limit(eval_window_days)
+                ).scalars().all()
+                if rows:
+                    return list(rows)
+            return []
+
+    @staticmethod
+    def _candidate_codes(code: str) -> List[str]:
+        normalized = canonical_stock_code(normalize_stock_code(code))
+        candidates: List[str] = []
+
+        def add(candidate: str) -> None:
+            cleaned = canonical_stock_code(candidate)
+            if cleaned and cleaned not in candidates:
+                candidates.append(cleaned)
+
+        add(code)
+        add(normalized)
+
+        if normalized.startswith("HK"):
+            digits = normalized[2:]
+            if digits.isdigit():
+                add(f"{digits}.HK")
+        elif normalized.isdigit() and len(normalized) == 6:
+            for suffix in (".SH", ".SZ", ".SS", ".BJ"):
+                add(f"{normalized}{suffix}")
+            for prefix in ("SH", "SZ", "BJ"):
+                add(f"{prefix}{normalized}")
+
+        return candidates

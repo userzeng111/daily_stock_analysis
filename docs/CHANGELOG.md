@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 
 - [修复] 大盘复盘链路接入 `REPORT_LANGUAGE`：`REPORT_LANGUAGE=en` 时，A 股/合并复盘的 Prompt、章节标题、模板兜底文案与通知包装标题统一改为英文，避免出现英文正文外包中文标题的问题。
+- [新功能] 新增 Web 端“跟踪”模块：支持把个股、ETF 与内置主题篮子加入连续监测，按最近 30 个交易 bar 识别阶段性买点候选，并通过 `/api/v1/watch` 暴露目标管理、运行态控制、候选事件与 SSE 更新能力。
+- [改进] `/watch` 页面新增跟踪目标近 7 个交易日整体分析摘要，并支持点击目标后在页内展开 `7日 / 30日` K 线图、MA/MACD/RSI/量价策略指标、theme 代表成员切换与最新复核结论展示。
+- [修复] `/watch` 目标摘要与详情接口补齐稳定契约：首次并发访问不再触发数据库初始化竞态，后台扫描会刷新目标 7 日摘要，详情仅接受 `7日 / 30日` 两档窗口，并按当前成员返回支撑/压力位与最新复核结论。
+- [文档] 补充连续跟踪模块说明：在 `.env.example`、`docs/full-guide.md` 与 `docs/full-guide_EN.md` 新增 `WATCHLIST_SCAN_INTERVAL_MINUTES` 配置及 `/watch` 页面使用说明。
 - [修复] `EfinanceFetcher.get_main_indices()` 对东方财富指数实时行情的开盘价映射改为兼容 `今开 -> 开盘 -> open`，修复部分 `efinance` 版本下指数开盘价被读成缺失值的问题（fixes #1043）
 - [修复] OpenAI Compatible 渠道现在会把 `glm-5.1` 这类裸模型名与声明中的 `openai/<model>` 视为等价，修复 Web 设置页和配置校验误报“主模型未出现在当前渠道中”的问题；同步补充 `api.udcode.cn` 一类网关的接入示例文档。
 - [修复] `AGENT_MAX_STEPS` 在 orchestrator 多 Agent 模式下统一明确为“默认作为各子 Agent 的步数上限而非硬覆盖；TechnicalAgent 等高默认值 Agent 会被封顶、低默认值 Agent 保持原值；当用户主动调高（>10）时，再统一覆盖所有子 Agent 采用全局值”，同时修复用户设置 12 但 TechnicalAgent 仍以默认 6 步运行并报 "Agent exceeded max steps" 的问题（fixes #1026）

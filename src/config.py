@@ -686,6 +686,7 @@ class Config:
     backtest_min_age_days: int = 14
     backtest_engine_version: str = "v1"
     backtest_neutral_band_pct: float = 2.0
+    watchlist_scan_interval_minutes: int = 45
     
     # === 日志配置 ===
     log_dir: str = "./logs"  # 日志文件目录
@@ -1350,6 +1351,12 @@ class Config:
                 2.0,
                 field_name='BACKTEST_NEUTRAL_BAND_PCT',
                 minimum=0.0,
+            ),
+            watchlist_scan_interval_minutes=parse_env_int(
+                os.getenv('WATCHLIST_SCAN_INTERVAL_MINUTES'),
+                45,
+                field_name='WATCHLIST_SCAN_INTERVAL_MINUTES',
+                minimum=5,
             ),
             log_dir=os.getenv('LOG_DIR', './logs'),
             log_level=os.getenv('LOG_LEVEL', 'INFO'),
