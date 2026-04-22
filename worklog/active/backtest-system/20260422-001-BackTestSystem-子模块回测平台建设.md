@@ -8,4 +8,4 @@ BackTestSystem 子模块回测平台建设
 
 # 当前状态
 
-进行中：已完成设计文档 `docs/superpowers/specs/2026-04-22-backtest-system-design.md` 与实现计划 `docs/superpowers/plans/2026-04-22-backtest-system-implementation.md`，当前等待用户选择执行方式后进入 BackTestSystem 基础依赖和分层脚手架搭建。
+实现完成，待用户验收：BackTestSystem 前后端、样例数据导入、策略配置、回测执行、结果看板与图表联动链路已落地；本轮已复核后端测试 `52 passed`、前端测试 `11 passed`、Python `py_compile` 成功、前端 `npm run build` 成功，并基于样例 CSV 完成两份数据导入与一次贵州茅台回测 smoke。
