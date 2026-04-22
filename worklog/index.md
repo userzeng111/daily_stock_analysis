@@ -1,2 +1,3 @@
 - 本地部署并成功运行项目 - `worklog/active/deployment/20260421-001-本地部署运行项目.md` - 检查依赖与最小配置后启动服务并验证可访问性。
 - 自定义渠道接入 Anthropic 兼容网关 - `worklog/active/llm-config/20260421-001-自定义渠道接入-anthropic兼容网关.md` - 排查设置页与后端渠道配置链路，补齐 Anthropic 兼容网关接入能力。
+- 导出上证50与贵州茅台日线数据 - `worklog/active/data-export/20260422-001-导出上证50与贵州茅台日线数据.md` - 扩展独立导出脚本以输出上证50与贵州茅台的日线 CSV，并尽量保留原始字段。

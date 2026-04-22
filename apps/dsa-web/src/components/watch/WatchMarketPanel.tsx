@@ -7,12 +7,14 @@ import {
   Cell,
   ComposedChart,
   Line,
-  Rectangle,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
+  useOffset,
+  useXAxisScale,
+  useYAxisScale,
 } from 'recharts';
 import { Badge, EmptyState } from '../common';
 import { cn } from '../../utils/cn';
@@ -153,43 +155,54 @@ const toggleClass = (pressed: boolean) =>
 
 const priceTone = (value: number) => (value >= 0 ? 'text-danger' : 'text-success');
 
-const CandleShape = (props: {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  payload?: CandleDatum;
-}) => {
-  const { x = 0, y = 0, width = 0, height = 0, payload } = props;
-  if (!payload || width <= 0 || height <= 0) return null;
+const CandleLayer = ({ candleData }: { candleData: CandleDatum[] }) => {
+  const offset = useOffset();
+  const xScale = useXAxisScale();
+  const yScale = useYAxisScale();
 
-  const color = payload.isUp ? UP_COLOR : DOWN_COLOR;
-  const maxBody = Math.max(payload.open, payload.close);
-  const minBody = Math.min(payload.open, payload.close);
-  const bodyTop = y + ((payload.high - maxBody) / payload.highLowRange) * height;
-  const bodyHeight = Math.max(((maxBody - minBody) / payload.highLowRange) * height, 2);
-  const centerX = x + width / 2;
+  if (!candleData.length || !offset || !xScale || !yScale) return null;
+
+  const bandwidth = typeof xScale.bandwidth === 'function' ? xScale.bandwidth() : 8;
 
   return (
-    <g>
-      <line
-        x1={centerX}
-        x2={centerX}
-        y1={y}
-        y2={y + height}
-        stroke={color}
-        strokeWidth={1.3}
-      />
-      <Rectangle
-        x={x + width * 0.18}
-        y={bodyTop}
-        width={Math.max(width * 0.64, 4)}
-        height={bodyHeight}
-        radius={2}
-        fill={payload.isUp ? 'rgba(239,68,68,0.24)' : 'rgba(34,197,94,0.24)'}
-        stroke={color}
-        strokeWidth={1.2}
-      />
+    <g transform={`translate(${offset.left},${offset.top})`}>
+      {candleData.map((d) => {
+        const cx = xScale(d.label) + bandwidth / 2;
+        const yHigh = yScale(d.high);
+        const yLow = yScale(d.low);
+        const yOpen = yScale(d.open);
+        const yClose = yScale(d.close);
+
+        if (!Number.isFinite(cx) || !Number.isFinite(yHigh)) return null;
+
+        const color = d.isUp ? UP_COLOR : DOWN_COLOR;
+        const bodyTop = Math.min(yOpen, yClose);
+        const bodyHeight = Math.max(Math.abs(yOpen - yClose), 1);
+        const halfWidth = Math.max(bandwidth * 0.32, 2);
+
+        return (
+          <g key={d.label}>
+            <line
+              x1={cx}
+              x2={cx}
+              y1={yHigh}
+              y2={yLow}
+              stroke={color}
+              strokeWidth={1.3}
+            />
+            <rect
+              x={cx - halfWidth}
+              y={bodyTop}
+              width={halfWidth * 2}
+              height={bodyHeight}
+              fill={d.isUp ? 'rgba(239,68,68,0.24)' : 'rgba(34,197,94,0.24)'}
+              stroke={color}
+              strokeWidth={1.2}
+              rx={2}
+            />
+          </g>
+        );
+      })}
     </g>
   );
 };
@@ -220,6 +233,28 @@ export const WatchMarketPanel: React.FC<WatchMarketPanelProps> = ({
       : candleData[candleData.length - 1]?.label
   ) ?? null;
   const activeLabel = hoverLabel ?? latestLabel;
+
+  const priceDomain = useMemo(() => {
+    if (!candleData.length) return ['auto', 'auto'] as [string, string];
+    const values = candleData
+      .flatMap((d) => [d.open, d.high, d.low, d.close, d.ma5, d.ma10, d.ma20])
+      .filter((v): v is number => typeof v === 'number' && v > 0 && Number.isFinite(v));
+    if (!values.length) return ['auto', 'auto'] as [string, string];
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    return [min * 0.8, max * 1.02] as [number, number];
+  }, [candleData]);
+
+  const intradayDomain = useMemo(() => {
+    if (!intradayData.length) return ['auto', 'auto'] as [string, string];
+    const values = intradayData
+      .flatMap((d) => [d.price, d.averagePrice])
+      .filter((v): v is number => typeof v === 'number' && v > 0 && Number.isFinite(v));
+    if (!values.length) return ['auto', 'auto'] as [string, string];
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    return [min * 0.8, max * 1.02] as [number, number];
+  }, [intradayData]);
 
   const activeCandle = activeLabel
     ? candleData.find((item) => item.label === activeLabel) ?? candleData[candleData.length - 1]
@@ -402,7 +437,7 @@ export const WatchMarketPanel: React.FC<WatchMarketPanelProps> = ({
                   <YAxis
                     yAxisId="price"
                     orientation="right"
-                    domain={['dataMin - 2', 'dataMax + 2']}
+                    domain={intradayDomain}
                     tick={{ fill: '#94a3b8', fontSize: 12 }}
                     axisLine={false}
                     tickLine={false}
@@ -458,7 +493,7 @@ export const WatchMarketPanel: React.FC<WatchMarketPanelProps> = ({
                   />
                   <YAxis
                     orientation="right"
-                    domain={['dataMin - 2', 'dataMax + 2']}
+                    domain={priceDomain}
                     tick={{ fill: '#94a3b8', fontSize: 12 }}
                     axisLine={false}
                     tickLine={false}
@@ -469,14 +504,7 @@ export const WatchMarketPanel: React.FC<WatchMarketPanelProps> = ({
                   {activeCandle?.close ? (
                     <ReferenceLine y={activeCandle.close} stroke="rgba(148,163,184,0.28)" />
                   ) : null}
-                  <Bar dataKey="lowBase" stackId="candle" fill="transparent" isAnimationActive={false} />
-                  <Bar
-                    dataKey="highLowRange"
-                    stackId="candle"
-                    fill="transparent"
-                    shape={<CandleShape />}
-                    isAnimationActive={false}
-                  />
+                  <CandleLayer candleData={candleData} />
                   <Line dataKey="ma5" stroke="#f59e0b" dot={false} strokeWidth={1.6} isAnimationActive={false} />
                   <Line dataKey="ma10" stroke="#38bdf8" dot={false} strokeWidth={1.6} isAnimationActive={false} />
                   <Line dataKey="ma20" stroke="#e879f9" dot={false} strokeWidth={1.4} isAnimationActive={false} />

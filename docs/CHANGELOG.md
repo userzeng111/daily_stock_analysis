@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 
 - [修复] 大盘复盘链路接入 `REPORT_LANGUAGE`：`REPORT_LANGUAGE=en` 时，A 股/合并复盘的 Prompt、章节标题、模板兜底文案与通知包装标题统一改为英文，避免出现英文正文外包中文标题的问题。
+- [改进] 新增独立日线导出脚本预设：默认支持上证50与贵州茅台，统一走 AkShare 新浪系日线接口并尽量保留原始字段导出到 `data/test_exports/` 以便做按天级别分析测试。
 - [新功能] 新增 Web 端“跟踪”模块：支持把个股、ETF 与内置主题篮子加入连续监测，按最近 30 个交易 bar 识别阶段性买点候选，并通过 `/api/v1/watch` 暴露目标管理、运行态控制、候选事件与 SSE 更新能力。
 - [改进] `/watch` 页面新增跟踪目标近 7 个交易日整体分析摘要，并支持点击目标后在页内展开 `7日 / 30日` K 线图、MA/MACD/RSI/量价策略指标、theme 代表成员切换与最新复核结论展示。
 - [修复] `/watch` 目标摘要与详情接口补齐稳定契约：首次并发访问不再触发数据库初始化竞态，后台扫描会刷新目标 7 日摘要，详情仅接受 `7日 / 30日` 两档窗口，并按当前成员返回支撑/压力位与最新复核结论。
@@ -28,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [改进] Agent 超步数错误信息增加 AGENT_MAX_STEPS 调整提示，帮助用户自助排查
 - [修复] **MiniMax-M2.7 模型连接测试支持** — 修复 LLM 通道连接测试在 MiniMax-M2.7 模型下返回 "Empty response" 的问题；增加了 `max_tokens` 上限（8→256）以容纳 MiniMax 思考过程，并添加 `content_blocks` 格式解析逻辑统一处理 MiniMax 响应格式差异。
 - [修复] 移除 `HistoryItem` 与 `ReportSummary` 响应 Schema 中 `sentiment_score` 的 `ge=0/le=100` 约束（fixes #942）——历史库中存储的超范围负值或大于 100 的情绪评分不再触发 Pydantic ValidationError，历史列表与详情接口恢复正常返回。
+- [修复] `/watch` 详情接口补齐实时行情获取：`api/deps.py` 的 `get_watch_detail_service` 引入 `DataFetcherManager` 作为 `quote_loader`，使详情面板在非交易时段也能通过实时行情补充当日数据，不再停留在数据库最后交易日。
+- [修复] `/watch` K 线图主图价格坐标轴改为从区间最低价向下约 20% 处起始（`dataMin * 0.8`），避免 recharts 字符串表达式在某些场景下被错误解析为从 0 开始的问题。
 - [改进] 后端股票名称解析改为优先复用前端 `stocks.index.json` 全量索引并懒加载缓存；纯后端/缺失静态资源场景静默降级回 `STOCK_NAME_MAP` 与原有数据源回退链路。
 - [改进] Agent IntelAgent 新增公司公告搜索维度（上交所/深交所/cninfo）与主力资金流工具（get_capital_flow），修复 Agent 模式下公告和资金流数据经常缺失的问题
 - [修复] webui_frontend.py 在 static/index.html 存在但 static/assets/ 缺失时发出明确警告，避免用户因 CSS/JS 资源缺失导致页面元素异常变大却无从排查

@@ -1,2 +1,4 @@
 - 股票持续监测跟踪功能 - `worklog/archive/monitoring/20260421-001-股票持续监测跟踪功能.md` - 已完成连续跟踪模块建设，覆盖个股、ETF 与主题篮子监测、摘要、详情面板与联动验证。
 - 连续跟踪工作台与同花顺式行情区改造 - `worklog/archive/monitoring/20260422-001-连续跟踪工作台与同花顺式行情区改造.md` - 把 `/watch` 升级为支持手动刷新、主动扫描和同花顺式行情区的三栏工作台。
+- 本地部署并成功运行项目 - `worklog/archive/deployment/20260421-001-本地部署运行项目.md` - 检查依赖与最小配置后启动服务并验证可访问性。
+- 自定义渠道接入 Anthropic 兼容网关 - `worklog/archive/llm-config/20260421-001-自定义渠道接入-anthropic兼容网关.md` - 排查设置页与后端渠道配置链路，补齐 OpenAI Compatible 网关的裸模型名等价匹配与接入示例文档。

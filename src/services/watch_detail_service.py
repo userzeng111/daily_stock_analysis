@@ -240,9 +240,9 @@ class WatchDetailService:
         base_df["date"] = pd.to_datetime(base_df["date"])
         filtered = self._apply_window(base_df, window)
         if timeframe == "day":
-            padded = self._pad_frame(filtered.reset_index(drop=True), window=window)
-            padded["date"] = pd.to_datetime(padded["date"]).dt.date
-            return padded.reset_index(drop=True)
+            result = filtered.reset_index(drop=True)
+            result["date"] = pd.to_datetime(result["date"]).dt.date
+            return result
         return self._aggregate_frame(filtered, timeframe=timeframe).reset_index(drop=True)
 
     @staticmethod

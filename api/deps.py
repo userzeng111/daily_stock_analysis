@@ -25,6 +25,7 @@ from src.services.watch_runtime_service import WatchRuntimeService
 from src.services.watch_signal_service import WatchSignalService
 from src.services.watch_summary_service import WatchSummaryService
 from src.services.watchlist_service import WatchlistService
+from data_provider.base import DataFetcherManager
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -141,9 +142,11 @@ def get_watch_detail_service(request: Request) -> WatchDetailService:
     """Get shared watch detail service instance."""
     service = getattr(request.app.state, "watch_detail_service", None)
     if service is None:
+        fetcher = DataFetcherManager()
         service = WatchDetailService(
             db_manager=get_database_manager(),
             repo=get_watchlist_service(request).repo,
+            quote_loader=lambda code: fetcher.get_realtime_quote(code),
         )
         request.app.state.watch_detail_service = service
     return service
