@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import threading
-from typing import Dict, Optional
+from typing import Dict, Iterable, Optional
 
 from src.config import get_config
 from src.repositories.watch_repo import WatchRepository
@@ -91,18 +91,40 @@ class WatchRuntimeService:
             "scan_interval_minutes": self.scan_interval_minutes,
         }
 
-    def run_cycle(self) -> Dict[str, int]:
-        if not self._enabled:
+    def run_cycle(self, *, force: bool = False) -> Dict[str, object]:
+        if not self._enabled and not force:
             return {"processed_targets": 0, "emitted_events": 0}
 
+        targets, _ = self.repo.list_targets(page=1, limit=1000, status="active")
+        return self._scan_targets(targets)
+
+    def scan_all_targets(self) -> Dict[str, object]:
+        targets, _ = self.repo.list_targets(page=1, limit=1000, status="active")
+        return self._scan_targets(targets)
+
+    def scan_target(self, target_id: int) -> Dict[str, object]:
+        target = self.repo.get_target(int(target_id))
+        if target is None:
+            raise ValueError(f"watch target not found: {target_id}")
+        return self._scan_targets([target], requested_target_id=int(target_id), force_members=True)
+
+    def run_target_cycle(self, target_id: int) -> Dict[str, object]:
+        return self.scan_target(target_id)
+
+    def _scan_targets(
+        self,
+        targets: Iterable,
+        *,
+        requested_target_id: Optional[int] = None,
+        force_members: bool = False,
+    ) -> Dict[str, object]:
         processed_targets = 0
         emitted_events = 0
         self._last_error = None
 
-        targets, _ = self.repo.list_targets(page=1, limit=1000, status="active")
         for target in targets:
             processed_targets += 1
-            events = self.signal_service.scan_target(target.id)
+            events = self._scan_one_target(target, force_members=force_members)
             for event in events:
                 emitted_events += 1
                 self.event_bus.publish(
@@ -131,15 +153,38 @@ class WatchRuntimeService:
                 self._last_error = str(exc)
 
         self._last_scan_at = datetime.now().isoformat()
-        self.event_bus.publish(
-            "watch.scan.completed",
-            {
-                "processed_targets": processed_targets,
-                "emitted_events": emitted_events,
-                "last_scan_at": self._last_scan_at,
-            },
-        )
-        return {"processed_targets": processed_targets, "emitted_events": emitted_events}
+        payload = {
+            "processed_targets": processed_targets,
+            "emitted_events": emitted_events,
+            "last_scan_at": self._last_scan_at,
+        }
+        if requested_target_id is not None:
+            payload["target_id"] = requested_target_id
+        self.event_bus.publish("watch.scan.completed", payload)
+        if self._last_error is not None:
+            payload["last_error"] = self._last_error
+        return payload
+
+    def _scan_one_target(self, target, *, force_members: bool = False):
+        if not force_members:
+            return self.signal_service.scan_target(target.id)
+
+        if not hasattr(self.signal_service, "scan_member"):
+            original_status = getattr(target, "status", None)
+            if original_status != "active":
+                self.repo.update_target(target.id, {"status": "active"})
+            try:
+                return self.signal_service.scan_target(target.id)
+            finally:
+                if original_status is not None and original_status != "active":
+                    self.repo.update_target(target.id, {"status": original_status})
+
+        events = []
+        for member in self.repo.list_members(target.id):
+            event = self.signal_service.scan_member(target, member)
+            if event is not None:
+                events.append(event)
+        return events
 
     def shutdown(self) -> None:
         self._shutdown_event.set()

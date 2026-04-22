@@ -781,8 +781,11 @@ The Web UI now includes a `/watch` page for continuous monitoring of stocks, ETF
 - persist candidate events together with one structured review result
 - control the background polling cadence through `WATCHLIST_SCAN_INTERVAL_MINUTES` (minimum 5 minutes), while start/stop remains available in the page itself
 - show a 7-trading-day summary directly on each watch target card
-- open an in-page detail panel on target click, with `7-day / 30-day` switching
-- display K-line data together with MA/MACD/RSI/volume-price strategy indicators and the latest review result
+- use a three-column workbench layout: target pool on the left, market workstation in the center, and event/runtime cards on the right
+- provide manual `Refresh Data`, `Scan All Once`, and explicit `Scan Current Target` actions in the page, even when the background runtime is stopped
+- support `Intraday / Daily / Weekly / Monthly` chart switching; the daily view supports `30 / 60 / 120 / 250 / YTD`
+- render the main chart with candlesticks plus `MA5 / MA10 / MA20`, and switch the sub-panel between `VOL / MACD / RSI` using the A-share red-up / green-down color convention
+- auto-refresh the currently opened detail when relevant watch SSE events arrive, while the right-side runtime card shows SSE connectivity, last scan time, and recent errors
 - for theme targets, show the theme-level summary first and then default to a representative member while still allowing member switching
 
 ### Evaluation Metrics

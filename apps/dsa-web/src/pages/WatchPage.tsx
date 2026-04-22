@@ -1,11 +1,15 @@
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiErrorAlert, Badge, Card, EmptyState } from '../components/common';
 import { watchApi } from '../api/watch';
 import { getParsedApiError } from '../api/error';
 import type { ParsedApiError } from '../api/error';
+import { WatchEventFeed, WatchMarketPanel, WatchTargetList } from '../components/watch';
+import { ApiErrorAlert, Badge, Card } from '../components/common';
 import { useWatchStream } from '../hooks/useWatchStream';
 import type {
+  WatchChartPeriod,
+  WatchDayRange,
+  WatchIndicatorPanel,
   WatchRuntimeStatus,
   WatchSignalEventItem,
   WatchTargetDetail,
@@ -15,117 +19,15 @@ import type {
 const WATCH_INPUT_CLASS =
   'input-surface input-focus-glow h-11 w-full rounded-xl border bg-transparent px-4 text-sm transition-all focus:outline-none disabled:cursor-not-allowed disabled:opacity-60';
 
-const DETAIL_TABS: Array<7 | 30> = [7, 30];
-
 const statusBadge = (enabled: boolean) => (
-  <Badge variant={enabled ? 'success' : 'default'}>
-    {enabled ? '运行中' : '已停止'}
-  </Badge>
+  <Badge variant={enabled ? 'success' : 'default'}>{enabled ? '运行中' : '已停止'}</Badge>
 );
 
-const eventDecisionLabel = (event: WatchSignalEventItem) =>
-  event.latestReviewSummary?.summary || event.latestReviewSummary?.decision || event.status;
-
-const summaryBadgeVariant = (status?: string | null) => {
-  if (status === 'ready') return 'success';
-  if (status === 'failed') return 'danger';
-  return 'default';
-};
-
-const chartNumber = (value: unknown): number => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const formatLevels = (levels?: number[]) =>
-  Array.isArray(levels) && levels.length > 0 ? levels.join(' / ') : '--';
-
-const KlineChart: React.FC<{ data: WatchTargetDetail['kline'] }> = ({ data }) => {
-  if (!data.length) {
-    return (
-      <EmptyState title="暂无K线数据" description="当前窗口没有可展示的交易数据。" />
-    );
-  }
-
-  const width = 760;
-  const height = 280;
-  const padding = 24;
-  const highs = data.map((item) => chartNumber(item.high));
-  const lows = data.map((item) => chartNumber(item.low));
-  const maxPrice = Math.max(...highs);
-  const minPrice = Math.min(...lows);
-  const range = Math.max(maxPrice - minPrice, 0.1);
-  const slotWidth = (width - padding * 2) / data.length;
-  const candleWidth = Math.max(6, slotWidth * 0.45);
-
-  const priceToY = (price: number) =>
-    padding + ((maxPrice - price) / range) * (height - padding * 2);
-
-  return (
-    <div className="rounded-2xl border border-border/60 bg-surface/30 p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-base font-semibold text-foreground">K线图</h3>
-        <span className="text-xs text-secondary-text">{data.length} 根</span>
-      </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-[260px] w-full overflow-visible">
-        <line
-          x1={padding}
-          y1={padding}
-          x2={padding}
-          y2={height - padding}
-          stroke="rgba(148,163,184,0.35)"
-          strokeWidth="1"
-        />
-        <line
-          x1={padding}
-          y1={height - padding}
-          x2={width - padding}
-          y2={height - padding}
-          stroke="rgba(148,163,184,0.35)"
-          strokeWidth="1"
-        />
-        {data.map((item, index) => {
-          const x = padding + slotWidth * index + slotWidth / 2;
-          const open = chartNumber(item.open);
-          const close = chartNumber(item.close);
-          const high = chartNumber(item.high);
-          const low = chartNumber(item.low);
-          const bullish = close >= open;
-          const bodyTop = priceToY(Math.max(open, close));
-          const bodyBottom = priceToY(Math.min(open, close));
-          const bodyHeight = Math.max(bodyBottom - bodyTop, 2);
-
-          return (
-            <g key={`${item.date}-${index}`}>
-              <line
-                x1={x}
-                y1={priceToY(high)}
-                x2={x}
-                y2={priceToY(low)}
-                stroke={bullish ? '#16a34a' : '#dc2626'}
-                strokeWidth="1.5"
-              />
-              <rect
-                x={x - candleWidth / 2}
-                y={bodyTop}
-                width={candleWidth}
-                height={bodyHeight}
-                fill={bullish ? 'rgba(22,163,74,0.45)' : 'rgba(220,38,38,0.45)'}
-                stroke={bullish ? '#16a34a' : '#dc2626'}
-                strokeWidth="1.2"
-                rx="1"
-              />
-            </g>
-          );
-        })}
-      </svg>
-      <div className="mt-3 flex items-center justify-between text-xs text-secondary-text">
-        <span>{data[0]?.date}</span>
-        <span>{data[data.length - 1]?.date}</span>
-      </div>
-    </div>
-  );
-};
+const WATCH_EVENT_TYPES = new Set([
+  'watch.scan.completed',
+  'watch.signal.created',
+  'watch.review.updated',
+]);
 
 const WatchPage: React.FC = () => {
   useEffect(() => {
@@ -136,14 +38,39 @@ const WatchPage: React.FC = () => {
   const [targets, setTargets] = useState<WatchTargetItem[]>([]);
   const [events, setEvents] = useState<WatchSignalEventItem[]>([]);
   const [selectedTargetId, setSelectedTargetId] = useState<number | null>(null);
-  const [detailWindow, setDetailWindow] = useState<7 | 30>(7);
   const [selectedMemberCode, setSelectedMemberCode] = useState<string | undefined>(undefined);
   const [selectedTargetDetail, setSelectedTargetDetail] = useState<WatchTargetDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [inputText, setInputText] = useState('');
   const [error, setError] = useState<ParsedApiError | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isScanningAll, setIsScanningAll] = useState(false);
+  const [isScanningTarget, setIsScanningTarget] = useState(false);
+  const [selectedPeriod, setSelectedPeriod] = useState<WatchChartPeriod>('day');
+  const [selectedRange, setSelectedRange] = useState<WatchDayRange>('30');
+  const [selectedIndicator, setSelectedIndicator] = useState<WatchIndicatorPanel>('vol');
   const detailRequestIdRef = useRef(0);
+  const selectedTargetIdRef = useRef<number | null>(null);
+  const selectedMemberCodeRef = useRef<string | undefined>(undefined);
+  const selectedPeriodRef = useRef<WatchChartPeriod>('day');
+  const selectedRangeRef = useRef<WatchDayRange>('30');
+
+  useEffect(() => {
+    selectedTargetIdRef.current = selectedTargetId;
+  }, [selectedTargetId]);
+
+  useEffect(() => {
+    selectedMemberCodeRef.current = selectedMemberCode;
+  }, [selectedMemberCode]);
+
+  useEffect(() => {
+    selectedPeriodRef.current = selectedPeriod;
+  }, [selectedPeriod]);
+
+  useEffect(() => {
+    selectedRangeRef.current = selectedRange;
+  }, [selectedRange]);
 
   const loadTargets = useCallback(async () => {
     const response = await watchApi.getTargets({ page: 1, limit: 20 });
@@ -161,37 +88,32 @@ const WatchPage: React.FC = () => {
   }, []);
 
   const loadPage = useCallback(async () => {
-    try {
-      await Promise.all([loadTargets(), loadEvents(), loadRuntime()]);
-      setError(null);
-    } catch (err) {
-      setError(getParsedApiError(err));
-    }
+    await Promise.all([loadTargets(), loadEvents(), loadRuntime()]);
   }, [loadEvents, loadRuntime, loadTargets]);
 
   const loadTargetDetail = useCallback(async (
     targetId: number,
-    windowDays: 7 | 30,
-    memberCode?: string,
+    params: {
+      memberCode?: string;
+      period?: WatchChartPeriod;
+      range?: WatchDayRange;
+    } = {},
   ) => {
     const requestId = detailRequestIdRef.current + 1;
     detailRequestIdRef.current = requestId;
+
     try {
       setDetailLoading(true);
-      setSelectedTargetDetail(null);
       const detail = await watchApi.getTargetDetail(targetId, {
-        window: windowDays,
-        memberCode,
+        memberCode: params.memberCode,
+        period: params.period ?? selectedPeriodRef.current,
+        range: params.range ?? selectedRangeRef.current,
       });
-      if (detailRequestIdRef.current !== requestId) {
-        return;
-      }
+      if (detailRequestIdRef.current !== requestId) return;
       setSelectedTargetDetail(detail);
       setError(null);
     } catch (err) {
-      if (detailRequestIdRef.current !== requestId) {
-        return;
-      }
+      if (detailRequestIdRef.current !== requestId) return;
       setSelectedTargetDetail(null);
       setError(getParsedApiError(err));
     } finally {
@@ -201,29 +123,85 @@ const WatchPage: React.FC = () => {
     }
   }, []);
 
+  const refreshActiveDetail = useCallback(async () => {
+    if (selectedTargetIdRef.current == null) return;
+    await loadTargetDetail(selectedTargetIdRef.current, {
+      memberCode: selectedMemberCodeRef.current,
+      period: selectedPeriodRef.current,
+      range: selectedRangeRef.current,
+    });
+  }, [loadTargetDetail]);
+
   useEffect(() => {
-    void loadPage();
+    void (async () => {
+      try {
+        await loadPage();
+        setError(null);
+      } catch (err) {
+        setError(getParsedApiError(err));
+      }
+    })();
   }, [loadPage]);
 
   useEffect(() => {
     if (selectedTargetId == null) return;
-    void loadTargetDetail(selectedTargetId, detailWindow, selectedMemberCode);
-  }, [detailWindow, loadTargetDetail, selectedMemberCode, selectedTargetId]);
+    void loadTargetDetail(selectedTargetId, {
+      memberCode: selectedMemberCode,
+      period: selectedPeriod,
+      range: selectedRange,
+    });
+  }, [loadTargetDetail, selectedMemberCode, selectedPeriod, selectedRange, selectedTargetId]);
 
-  useWatchStream({
+  useEffect(() => {
+    if (selectedTargetId == null) {
+      setSelectedTargetDetail(null);
+      return;
+    }
+
+    if (targets.length > 0 && !targets.some((target) => target.id === selectedTargetId)) {
+      setSelectedTargetId(null);
+      setSelectedMemberCode(undefined);
+      setSelectedTargetDetail(null);
+    }
+  }, [selectedTargetId, targets]);
+
+  const { isConnected } = useWatchStream({
     enabled: true,
     onEvent: (event) => {
       if (event.eventType === 'watch.runtime.started' || event.eventType === 'watch.runtime.stopped') {
         void loadRuntime();
         return;
       }
-      if (event.eventType === 'watch.scan.completed' || event.eventType === 'watch.signal.created' || event.eventType === 'watch.review.updated') {
-        void loadTargets();
-        void loadEvents();
-        void loadRuntime();
+
+      if (!WATCH_EVENT_TYPES.has(event.eventType)) return;
+
+      void loadTargets();
+      void loadEvents();
+      void loadRuntime();
+
+      const eventTargetId = typeof event.payload?.targetId === 'number' ? event.payload.targetId : null;
+      const shouldRefreshActiveDetail =
+        event.eventType === 'watch.scan.completed' ||
+        (selectedTargetIdRef.current != null && eventTargetId === selectedTargetIdRef.current);
+
+      if (shouldRefreshActiveDetail) {
+        void refreshActiveDetail();
       }
     },
   });
+
+  const handleRefreshData = useCallback(async () => {
+    try {
+      setIsRefreshing(true);
+      await loadPage();
+      await refreshActiveDetail();
+      setError(null);
+    } catch (err) {
+      setError(getParsedApiError(err));
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [loadPage, refreshActiveDetail]);
 
   const handleToggleRuntime = useCallback(async () => {
     try {
@@ -237,9 +215,40 @@ const WatchPage: React.FC = () => {
     }
   }, [runtime?.enabled]);
 
+  const handleScanAll = useCallback(async () => {
+    try {
+      setIsScanningAll(true);
+      await watchApi.scanAllTargetsOnce();
+      await loadPage();
+      await refreshActiveDetail();
+      setError(null);
+    } catch (err) {
+      setError(getParsedApiError(err));
+    } finally {
+      setIsScanningAll(false);
+    }
+  }, [loadPage, refreshActiveDetail]);
+
+  const handleScanTarget = useCallback(async (targetId: number) => {
+    try {
+      setIsScanningTarget(true);
+      await watchApi.scanTargetOnce(targetId);
+      await Promise.all([loadTargets(), loadEvents(), loadRuntime()]);
+      if (selectedTargetIdRef.current === targetId) {
+        await refreshActiveDetail();
+      }
+      setError(null);
+    } catch (err) {
+      setError(getParsedApiError(err));
+    } finally {
+      setIsScanningTarget(false);
+    }
+  }, [loadEvents, loadRuntime, loadTargets, refreshActiveDetail]);
+
   const handleCreateTarget = useCallback(async () => {
     const trimmed = inputText.trim();
     if (!trimmed) return;
+
     try {
       setIsSubmitting(true);
       await watchApi.createTarget({
@@ -257,10 +266,12 @@ const WatchPage: React.FC = () => {
     }
   }, [inputText, loadTargets]);
 
-  const handleOpenTargetDetail = useCallback(async (targetId: number) => {
-    setSelectedTargetId(targetId);
-    setDetailWindow(7);
+  const handleOpenTarget = useCallback((targetId: number) => {
     setSelectedMemberCode(undefined);
+    setSelectedPeriod('day');
+    setSelectedRange('30');
+    setSelectedIndicator('vol');
+    setSelectedTargetId(targetId);
   }, []);
 
   const targetSummary = useMemo(() => {
@@ -269,25 +280,45 @@ const WatchPage: React.FC = () => {
   }, [targets]);
 
   return (
-    <div data-testid="watch-page" className="space-y-4 px-3 pb-6 md:px-6">
+    <div data-testid="watch-page" className="watch-page space-y-4 px-3 pb-6 md:px-6">
       {error ? <ApiErrorAlert error={error} /> : null}
 
       <Card variant="gradient" padding="md">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
             <p className="label-uppercase">连续跟踪</p>
             <h1 className="text-2xl font-semibold text-foreground">个股 / ETF / 主题持续监测</h1>
-            <p className="mt-2 text-sm text-secondary-text">
-              当前状态：{runtime ? statusBadge(runtime.enabled) : <Badge variant="default">加载中</Badge>}
-            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-secondary-text">
+              <span>当前状态：{runtime ? statusBadge(runtime.enabled) : <Badge>加载中</Badge>}</span>
+              <span>
+                跟踪目标 <span className="font-semibold text-foreground">{targetSummary}</span>
+              </span>
+              <span>
+                扫描频率{' '}
+                <span className="font-semibold text-foreground">
+                  {runtime?.scanIntervalMinutes ?? 45} 分钟
+                </span>
+              </span>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="rounded-2xl border border-border/70 px-4 py-3 text-sm text-secondary-text">
-              跟踪目标 <span className="font-semibold text-foreground">{targetSummary}</span>
-            </div>
-            <div className="rounded-2xl border border-border/70 px-4 py-3 text-sm text-secondary-text">
-              扫描频率 <span className="font-semibold text-foreground">{runtime?.scanIntervalMinutes ?? 45} 分钟</span>
-            </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={isRefreshing}
+              onClick={() => void handleRefreshData()}
+            >
+              刷新数据
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={isScanningAll}
+              onClick={() => void handleScanAll()}
+            >
+              全量扫描一次
+            </button>
             <button type="button" className="btn-primary" onClick={() => void handleToggleRuntime()}>
               {runtime?.enabled ? '停止监测' : '启动监测'}
             </button>
@@ -295,14 +326,13 @@ const WatchPage: React.FC = () => {
         </div>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_1fr]">
+      <div className="grid gap-4 2xl:grid-cols-[320px_minmax(0,1fr)_360px]">
         <Card padding="md">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-foreground">跟踪目标</h2>
-              <p className="text-sm text-secondary-text">支持股票代码、ETF 代码和内置主题名。</p>
-            </div>
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-foreground">目标池</h2>
+            <p className="text-sm text-secondary-text">支持股票代码、ETF 代码和内置主题名。</p>
           </div>
+
           <div className="mb-4 flex gap-3">
             <input
               value={inputText}
@@ -310,228 +340,83 @@ const WatchPage: React.FC = () => {
               placeholder="输入股票代码、ETF 代码或主题名"
               className={WATCH_INPUT_CLASS}
             />
-            <button type="button" className="btn-primary whitespace-nowrap" disabled={isSubmitting} onClick={() => void handleCreateTarget()}>
+            <button
+              type="button"
+              className="btn-primary whitespace-nowrap"
+              disabled={isSubmitting}
+              onClick={() => void handleCreateTarget()}
+            >
               添加跟踪目标
             </button>
           </div>
-          {targets.length === 0 ? (
-            <EmptyState title="暂无跟踪目标" description="添加一个股票、ETF 或主题后，这里会显示监测篮子。" />
-          ) : (
-            <div className="space-y-3">
-              {targets.map((target) => (
-                <div key={target.id} className="rounded-2xl border border-border/60 bg-surface/40 p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-base font-semibold text-foreground">{target.displayName}</span>
-                        <Badge variant={target.status === 'active' ? 'success' : 'warning'}>{target.status}</Badge>
-                        {target.summary?.status ? (
-                          <Badge variant={summaryBadgeVariant(target.summary.status)}>{target.summary.status}</Badge>
-                        ) : null}
-                      </div>
-                      <p className="text-sm text-secondary-text">
-                        {target.targetKey} · {target.targetKind} · 成员 {target.memberCount}
-                      </p>
-                      <div className="flex flex-wrap gap-2 text-xs text-secondary-text">
-                        {target.summary?.trendStatus ? (
-                          <Badge variant="default">{target.summary.trendStatus}</Badge>
-                        ) : null}
-                        {target.summary?.signalScore != null ? (
-                          <Badge variant="info">评分 {target.summary.signalScore}</Badge>
-                        ) : null}
-                        {target.summary?.action ? (
-                          <Badge variant="warning">{target.summary.action}</Badge>
-                        ) : null}
-                      </div>
-                      <p className="text-sm text-foreground">
-                        {target.summary?.brief || '摘要生成中'}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn-secondary whitespace-nowrap"
-                      onClick={() => void handleOpenTargetDetail(target.id)}
-                    >
-                      展开详情
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+
+          <WatchTargetList
+            targets={targets}
+            selectedTargetId={selectedTargetId}
+            onSelectTarget={handleOpenTarget}
+            onScanTarget={(targetId) => void handleScanTarget(targetId)}
+            isScanningTarget={isScanningTarget}
+          />
         </Card>
 
         <Card padding="md">
           <div className="mb-4">
-            <h2 className="text-lg font-semibold text-foreground">候选事件</h2>
-            <p className="text-sm text-secondary-text">规则筛选后再交给复核服务判断是否可跟踪。</p>
+            <h2 className="text-lg font-semibold text-foreground">行情工作台</h2>
+            <p className="text-sm text-secondary-text">
+              分时 / K 线 / 副图联动查看，接近个股页的基础观察结构。
+            </p>
           </div>
-          {events.length === 0 ? (
-            <EmptyState title="暂无候选事件" description="监测启动后，阶段性买点会出现在这里。" />
-          ) : (
-            <div className="space-y-3">
-              {events.map((event) => (
-                <div key={event.id} className="rounded-2xl border border-border/60 bg-surface/40 p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-base font-semibold text-foreground">{event.memberName || event.memberCode}</span>
-                        <Badge variant={event.status === 'accepted' ? 'success' : 'default'}>{event.status}</Badge>
-                      </div>
-                      <p className="mt-1 text-sm text-secondary-text">
-                        {event.memberCode} · 评分 {event.signalScore ?? '--'} · {event.signalDate}
-                      </p>
-                      <p className="mt-2 text-sm text-foreground">{eventDecisionLabel(event)}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+
+          <WatchMarketPanel
+            detail={selectedTargetDetail}
+            detailLoading={detailLoading}
+            selectedPeriod={selectedPeriod}
+            selectedRange={selectedRange}
+            selectedIndicator={selectedIndicator}
+            onPeriodChange={setSelectedPeriod}
+            onRangeChange={setSelectedRange}
+            onIndicatorChange={setSelectedIndicator}
+            onMemberChange={setSelectedMemberCode}
+            onScanTarget={(targetId) => void handleScanTarget(targetId)}
+            isScanningTarget={isScanningTarget}
+          />
         </Card>
-      </div>
 
-      <Card padding="md">
-        <div className="mb-3">
-          <h2 className="text-lg font-semibold text-foreground">跟踪详情</h2>
-          <p className="text-sm text-secondary-text">点击左侧跟踪目标后，查看近 7 日摘要、K 线和策略详情。</p>
+        <div className="space-y-4">
+          <Card padding="md">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-foreground">候选事件</h2>
+              <p className="text-sm text-secondary-text">规则筛选后，再交给复核服务判断是否可跟踪。</p>
+            </div>
+            <WatchEventFeed events={events} />
+          </Card>
+
+          <Card padding="md">
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-secondary-text">连接状态</span>
+                <Badge variant={isConnected ? 'success' : 'warning'}>
+                  {isConnected ? 'SSE 已连接' : 'SSE 重连中'}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-secondary-text">运行状态</span>
+                {statusBadge(runtime?.enabled ?? false)}
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-secondary-text">最后扫描</span>
+                <span className="text-foreground">{runtime?.lastScanAt || '--'}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-secondary-text">最近错误</span>
+                <span className="max-w-[220px] truncate text-right text-foreground">
+                  {runtime?.lastError || '无'}
+                </span>
+              </div>
+            </div>
+          </Card>
         </div>
-        {detailLoading ? (
-          <EmptyState title="详情加载中" description="正在读取 K 线和策略信息。" />
-        ) : !selectedTargetDetail ? (
-          <EmptyState title="未选择跟踪目标" description="选择左侧跟踪目标后，这里会展示 K 线与策略面板。" />
-        ) : (
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-border/60 bg-surface/40 p-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-base font-semibold text-foreground">
-                      {selectedTargetDetail.target.displayName}
-                    </span>
-                    <Badge variant={summaryBadgeVariant(selectedTargetDetail.summary.status)}>
-                      {selectedTargetDetail.summary.status}
-                    </Badge>
-                  </div>
-                  <p className="mt-1 text-sm text-secondary-text">
-                    {selectedTargetDetail.summary.brief || '暂无摘要'}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {DETAIL_TABS.map((windowValue) => (
-                    <button
-                      key={windowValue}
-                      type="button"
-                      className={windowValue === detailWindow ? 'btn-primary' : 'btn-secondary'}
-                      onClick={() => setDetailWindow(windowValue)}
-                    >
-                      {windowValue}日
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {selectedTargetDetail.memberOptions.length > 1 ? (
-                <div className="mt-4 max-w-xs">
-                  <label className="mb-2 block text-sm font-medium text-foreground" htmlFor="watch-member-select">
-                    详情成员切换
-                  </label>
-                  <select
-                    id="watch-member-select"
-                    aria-label="详情成员切换"
-                    className={WATCH_INPUT_CLASS}
-                    value={selectedTargetDetail.activeMember.memberCode}
-                    onChange={(event) => {
-                      setSelectedMemberCode(event.target.value);
-                    }}
-                  >
-                    {selectedTargetDetail.memberOptions.map((member) => (
-                      <option key={member.memberCode} value={member.memberCode}>
-                        {member.memberName} ({member.memberCode})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-              <KlineChart data={selectedTargetDetail.kline} />
-
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-border/60 bg-surface/30 p-4">
-                  <h3 className="mb-3 text-base font-semibold text-foreground">策略指标</h3>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div className="rounded-xl border border-border/50 p-3">
-                      <div className="text-secondary-text">信号</div>
-                      <div className="mt-1 font-semibold text-foreground">
-                        {String(selectedTargetDetail.indicators.buySignal ?? '--')}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-border/50 p-3">
-                      <div className="text-secondary-text">评分</div>
-                      <div className="mt-1 font-semibold text-foreground">
-                        {String(selectedTargetDetail.indicators.signalScore ?? '--')}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-border/50 p-3">
-                      <div className="text-secondary-text">MA5 / MA10 / MA20</div>
-                      <div className="mt-1 font-semibold text-foreground">
-                        {String(selectedTargetDetail.indicators.ma5 ?? '--')} / {String(selectedTargetDetail.indicators.ma10 ?? '--')} / {String(selectedTargetDetail.indicators.ma20 ?? '--')}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-border/50 p-3">
-                      <div className="text-secondary-text">MACD / RSI / 量价</div>
-                      <div className="mt-1 font-semibold text-foreground">
-                        {String(selectedTargetDetail.indicators.macdStatus ?? '--')} / {String(selectedTargetDetail.indicators.rsiStatus ?? '--')} / {String(selectedTargetDetail.indicators.volumeStatus ?? '--')}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-border/50 p-3">
-                      <div className="text-secondary-text">支撑位</div>
-                      <div className="mt-1 font-semibold text-foreground">
-                        {formatLevels(selectedTargetDetail.indicators.supportLevels)}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-border/50 p-3">
-                      <div className="text-secondary-text">压力位</div>
-                      <div className="mt-1 font-semibold text-foreground">
-                        {formatLevels(selectedTargetDetail.indicators.resistanceLevels)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-border/60 bg-surface/30 p-4">
-                  <h3 className="mb-3 text-base font-semibold text-foreground">策略解释</h3>
-                  <div className="space-y-3 text-sm">
-                    <div>
-                      <div className="mb-1 text-secondary-text">信号原因</div>
-                      <div className="text-foreground">
-                        {Array.isArray(selectedTargetDetail.strategyInsights.signalReasons)
-                          ? selectedTargetDetail.strategyInsights.signalReasons.join(' / ')
-                          : '--'}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="mb-1 text-secondary-text">风险因素</div>
-                      <div className="text-foreground">
-                        {Array.isArray(selectedTargetDetail.strategyInsights.riskFactors)
-                          ? selectedTargetDetail.strategyInsights.riskFactors.join(' / ')
-                          : '--'}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="mb-1 text-secondary-text">复核结论</div>
-                      <div className="text-foreground">
-                        {selectedTargetDetail.latestReview?.summary || '暂无复核结论'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </Card>
+      </div>
     </div>
   );
 };

@@ -116,12 +116,37 @@ class WatchRuntimeStatusResponse(BaseModel):
     scan_interval_minutes: int
 
 
+class WatchRuntimeScanResult(BaseModel):
+    target_id: Optional[int] = None
+    processed_targets: int
+    emitted_events: int
+    last_scan_at: Optional[str] = None
+    last_error: Optional[str] = None
+
+
+class WatchRuntimeScanResponse(BaseModel):
+    target_id: Optional[int] = None
+    processed_targets: int
+    emitted_events: int
+    last_scan_at: Optional[str] = None
+    last_error: Optional[str] = None
+    runtime: WatchRuntimeStatusResponse
+    scan: WatchRuntimeScanResult
+
+
 class WatchTargetDetailResponse(BaseModel):
     target: WatchTargetItem
     summary: WatchTargetSummary
     member_options: List[WatchMemberOption] = Field(default_factory=list)
     active_member: WatchMemberOption
     kline: List[Dict[str, Any]] = Field(default_factory=list)
+    chart_type: Optional[str] = None
     indicators: Dict[str, Any] = Field(default_factory=dict)
     strategy_insights: Dict[str, Any] = Field(default_factory=dict)
+    overlays: Dict[str, List[Optional[float]]] = Field(default_factory=dict)
+    sub_indicators: Dict[str, Any] = Field(default_factory=dict)
+    subIndicators: Dict[str, Any] = Field(default_factory=dict)
+    quote_snapshot: Dict[str, Any] = Field(default_factory=dict)
+    quoteSnapshot: Dict[str, Any] = Field(default_factory=dict)
+    meta: Dict[str, Any] = Field(default_factory=dict)
     latest_review: Optional[WatchReviewSummary] = None

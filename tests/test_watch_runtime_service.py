@@ -162,6 +162,139 @@ class WatchRuntimeServiceTestCase(unittest.TestCase):
         self.assertEqual(result["processed_targets"], 1)
         self.assertEqual(result["emitted_events"], 1)
 
+    def test_run_cycle_force_executes_when_runtime_disabled(self) -> None:
+        from src.repositories.watch_repo import WatchRepository
+        from src.services.watch_event_bus import WatchEventBus
+        from src.services.watch_review_service import WatchReviewService
+        from src.services.watch_runtime_service import WatchRuntimeService
+        from src.services.watchlist_service import WatchlistService
+
+        repo = WatchRepository(self.db)
+        watchlist_service = WatchlistService(db_manager=self.db, repo=repo)
+        target = watchlist_service.create_target("600519", display_name="贵州茅台")
+
+        signal_service = _RecordingSignalService(repo)
+        summary_service = _RecordingSummaryService()
+        runtime = WatchRuntimeService(
+            db_manager=self.db,
+            scheduler=_FakeScheduler(),
+            signal_service=signal_service,
+            review_service=WatchReviewService(db_manager=self.db),
+            event_bus=WatchEventBus(),
+            summary_service=summary_service,
+        )
+
+        result = runtime.run_cycle(force=True)
+
+        self.assertEqual(signal_service.calls, [target.id])
+        self.assertEqual(summary_service.calls, [target.id])
+        self.assertEqual(result["processed_targets"], 1)
+
+    def test_run_target_cycle_scans_single_target_when_runtime_disabled(self) -> None:
+        from src.repositories.watch_repo import WatchRepository
+        from src.services.watch_event_bus import WatchEventBus
+        from src.services.watch_review_service import WatchReviewService
+        from src.services.watch_runtime_service import WatchRuntimeService
+        from src.services.watchlist_service import WatchlistService
+
+        repo = WatchRepository(self.db)
+        watchlist_service = WatchlistService(db_manager=self.db, repo=repo)
+        target = watchlist_service.create_target("600519", display_name="贵州茅台")
+        other = watchlist_service.create_target("000001", display_name="平安银行")
+
+        signal_service = _RecordingSignalService(repo)
+        summary_service = _RecordingSummaryService()
+        runtime = WatchRuntimeService(
+            db_manager=self.db,
+            scheduler=_FakeScheduler(),
+            signal_service=signal_service,
+            review_service=WatchReviewService(db_manager=self.db),
+            event_bus=WatchEventBus(),
+            summary_service=summary_service,
+        )
+
+        result = runtime.run_target_cycle(target.id)
+
+        self.assertEqual(signal_service.calls, [target.id])
+        self.assertNotIn(other.id, signal_service.calls)
+        self.assertEqual(summary_service.calls, [target.id])
+        self.assertEqual(result["processed_targets"], 1)
+
+    def test_manual_scan_runs_when_runtime_disabled(self) -> None:
+        from src.repositories.watch_repo import WatchRepository
+        from src.services.watch_event_bus import WatchEventBus
+        from src.services.watch_review_service import WatchReviewService
+        from src.services.watch_runtime_service import WatchRuntimeService
+        from src.services.watchlist_service import WatchlistService
+
+        repo = WatchRepository(self.db)
+        watchlist_service = WatchlistService(db_manager=self.db, repo=repo)
+        target = watchlist_service.create_target("600519", display_name="贵州茅台")
+
+        signal_service = _RecordingSignalService(repo)
+        summary_service = _RecordingSummaryService()
+        bus = WatchEventBus()
+        queue: asyncio.Queue = asyncio.Queue()
+        bus.subscribe(queue)
+
+        runtime = WatchRuntimeService(
+            db_manager=self.db,
+            scheduler=_FakeScheduler(),
+            signal_service=signal_service,
+            review_service=WatchReviewService(db_manager=self.db),
+            event_bus=bus,
+            summary_service=summary_service,
+        )
+
+        result = runtime.scan_all_targets()
+
+        self.assertFalse(runtime.status()["enabled"])
+        self.assertEqual(result["processed_targets"], 1)
+        self.assertEqual(result["emitted_events"], 1)
+        self.assertEqual(signal_service.calls, [target.id])
+        self.assertEqual(summary_service.calls, [target.id])
+        self.assertIsNotNone(runtime.status()["last_scan_at"])
+
+        event_types = []
+        while not queue.empty():
+            event_types.append(queue.get_nowait()["event_type"])
+        self.assertIn("watch.scan.completed", event_types)
+
+    def test_manual_target_scan_can_scan_paused_target(self) -> None:
+        from src.repositories.watch_repo import WatchRepository
+        from src.services.watch_event_bus import WatchEventBus
+        from src.services.watch_review_service import WatchReviewService
+        from src.services.watch_runtime_service import WatchRuntimeService
+        from src.services.watchlist_service import WatchlistService
+
+        repo = WatchRepository(self.db)
+        watchlist_service = WatchlistService(db_manager=self.db, repo=repo)
+        target = watchlist_service.create_target("000001", display_name="平安银行")
+        repo.update_target(target.id, {"status": "paused"})
+
+        signal_service = _RecordingSignalService(repo)
+        summary_service = _RecordingSummaryService()
+        runtime = WatchRuntimeService(
+            db_manager=self.db,
+            scheduler=_FakeScheduler(),
+            signal_service=signal_service,
+            review_service=WatchReviewService(db_manager=self.db),
+            event_bus=WatchEventBus(),
+            summary_service=summary_service,
+        )
+
+        result = runtime.scan_target(target.id)
+
+        self.assertEqual(result["target_id"], target.id)
+        self.assertEqual(result["processed_targets"], 1)
+        self.assertEqual(result["emitted_events"], 1)
+        self.assertEqual(signal_service.calls, [target.id])
+        self.assertEqual(summary_service.calls, [target.id])
+
+        events, total = repo.list_signal_events(target_id=target.id)
+        self.assertEqual(total, 1)
+        self.assertEqual(events[0].member_code, "000001")
+
     def test_review_failure_marks_event_and_cycle_continues(self) -> None:
         from src.repositories.watch_repo import WatchRepository
         from src.services.watch_event_bus import WatchEventBus

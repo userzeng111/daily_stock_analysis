@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { watchApi } from '../api/watch';
+import { toCamelCase } from '../api/utils';
 import type { WatchStreamEvent } from '../types/watch';
 
 type UseWatchStreamOptions = {
@@ -37,7 +38,9 @@ export function useWatchStream(options: UseWatchStreamOptions = {}): UseWatchStr
 
   const dispatchEvent = useCallback((eventType: string, event: MessageEvent<string>) => {
     try {
-      const data = JSON.parse(event.data) as WatchStreamEvent;
+      const data = toCamelCase<{ occurredAt?: string; payload?: WatchStreamEvent['payload'] }>(
+        JSON.parse(event.data),
+      );
       callbacksRef.current.onEvent?.({
         eventType,
         occurredAt: data.occurredAt,

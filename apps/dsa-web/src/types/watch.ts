@@ -98,21 +98,88 @@ export interface WatchRuntimeStatus {
   scanIntervalMinutes: number;
 }
 
+export type WatchChartPeriod = 'intraday' | 'day' | 'week' | 'month';
+
+export type WatchDayRange = '30' | '60' | '120' | '250' | 'ytd';
+
+export type WatchIndicatorPanel = 'vol' | 'macd' | 'rsi';
+
+export interface WatchQuoteSnapshot {
+  latestPrice?: number | null;
+  change?: number | null;
+  changeAmount?: number | null;
+  changePct?: number | null;
+  amplitude?: number | null;
+  high?: number | null;
+  low?: number | null;
+  open?: number | null;
+  prevClose?: number | null;
+  volume?: number | null;
+  turnover?: number | null;
+}
+
+export interface WatchIntradayPoint {
+  time: string;
+  price: number;
+  averagePrice?: number | null;
+  volume?: number | null;
+}
+
+export interface WatchKlineBar {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface WatchOverlaySeries {
+  ma5?: Array<number | null>;
+  ma10?: Array<number | null>;
+  ma20?: Array<number | null>;
+}
+
+export interface WatchMacdSubIndicator {
+  dif: Array<number | null>;
+  dea: Array<number | null>;
+  bar: Array<number | null>;
+}
+
+export interface WatchRsiSubIndicator {
+  rsi6: Array<number | null>;
+  rsi12: Array<number | null>;
+  rsi24: Array<number | null>;
+}
+
+export interface WatchSubIndicators {
+  volMa?: Array<number | null>;
+  macd?: WatchMacdSubIndicator;
+  rsi?: WatchRsiSubIndicator;
+}
+
+export interface WatchDetailMeta {
+  timeframe: WatchChartPeriod;
+  window: WatchDayRange;
+  barCount: number;
+  updatedAt?: string | null;
+}
+
 export interface WatchTargetDetail {
   target: WatchTargetItem;
   summary: WatchTargetSummary;
   memberOptions: WatchMemberOption[];
   activeMember: WatchMemberOption;
-  kline: Array<{
-    date: string;
-    open: number;
-    high: number;
-    low: number;
-    close: number;
-    volume: number;
-  }>;
+  quote?: WatchQuoteSnapshot | null;
+  quoteSnapshot?: WatchQuoteSnapshot | null;
+  intraday?: WatchIntradayPoint[];
+  kline: WatchKlineBar[];
+  chartType?: string | null;
   indicators: WatchTargetIndicators;
   strategyInsights: WatchTargetStrategyInsights;
+  overlays?: WatchOverlaySeries | null;
+  subIndicators?: WatchSubIndicators | null;
+  meta?: WatchDetailMeta | null;
   latestReview?: WatchReviewSummary | null;
 }
 
@@ -136,8 +203,30 @@ export interface WatchTargetStrategyInsights {
   action?: string | null;
 }
 
+export interface WatchScanActionResponse {
+  targetId?: number;
+  processedTargets?: number;
+  emittedEvents?: number;
+  lastScanAt?: string | null;
+  status?: string | null;
+  [key: string]: unknown;
+}
+
+export interface WatchStreamEventPayload {
+  targetId?: number;
+  eventId?: number;
+  reviewId?: number;
+  memberCode?: string;
+  status?: string;
+  enabled?: boolean;
+  processedTargets?: number;
+  emittedEvents?: number;
+  lastScanAt?: string;
+  [key: string]: unknown;
+}
+
 export interface WatchStreamEvent {
   eventType: string;
   occurredAt?: string;
-  payload?: Record<string, unknown>;
+  payload?: WatchStreamEventPayload;
 }

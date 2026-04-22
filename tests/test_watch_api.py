@@ -11,6 +11,7 @@ import threading
 import unittest
 from datetime import date, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -24,6 +25,7 @@ except ModuleNotFoundError:
 from api.app import create_app
 from src.config import Config
 from src.repositories.watch_repo import WatchRepository
+from src.services.watch_detail_service import WatchDetailService
 from src.services.watchlist_service import WatchlistService
 from src.storage import DatabaseManager
 
@@ -150,9 +152,60 @@ class WatchApiTestCase(unittest.TestCase):
         self.assertEqual(stop_resp.status_code, 200)
         self.assertFalse(stop_resp.json()["enabled"])
 
+        scan_resp = self.client.post("/api/v1/watch/runtime/scan")
+        self.assertEqual(scan_resp.status_code, 200)
+        self.assertIn("processed_targets", scan_resp.json())
+
         delete_resp = self.client.delete(f"/api/v1/watch/targets/{target_id}")
         self.assertEqual(delete_resp.status_code, 200)
         self.assertTrue(delete_resp.json()["success"])
+
+    def test_manual_scan_endpoints_work_when_runtime_is_disabled(self) -> None:
+        target = WatchlistService(db_manager=self.db).create_target("600519", display_name="贵州茅台")
+
+        class _StubRuntimeService:
+            def status(self):
+                return {
+                    "enabled": False,
+                    "registered": False,
+                    "last_scan_at": "2026-04-22T10:00:00",
+                    "last_error": None,
+                    "scan_interval_minutes": 45,
+                }
+
+            def scan_all_targets(self):
+                return {
+                    "target_id": None,
+                    "processed_targets": 3,
+                    "emitted_events": 2,
+                    "last_scan_at": "2026-04-22T10:00:00",
+                    "last_error": None,
+                }
+
+            def scan_target(self, target_id: int):
+                return {
+                    "target_id": target_id,
+                    "processed_targets": 1,
+                    "emitted_events": 1,
+                    "last_scan_at": "2026-04-22T10:05:00",
+                    "last_error": None,
+                }
+
+        self.app.state.watch_runtime_service = _StubRuntimeService()
+
+        runtime_resp = self.client.post("/api/v1/watch/runtime/scan")
+        self.assertEqual(runtime_resp.status_code, 200)
+        runtime_payload = runtime_resp.json()
+        self.assertFalse(runtime_payload["runtime"]["enabled"])
+        self.assertEqual(runtime_payload["scan"]["processed_targets"], 3)
+        self.assertEqual(runtime_payload["scan"]["emitted_events"], 2)
+
+        target_resp = self.client.post(f"/api/v1/watch/targets/{target.id}/scan")
+        self.assertEqual(target_resp.status_code, 200)
+        target_payload = target_resp.json()
+        self.assertEqual(target_payload["scan"]["target_id"], target.id)
+        self.assertEqual(target_payload["scan"]["processed_targets"], 1)
+        self.assertEqual(target_payload["scan"]["emitted_events"], 1)
 
     def test_first_parallel_watch_requests_do_not_hit_database_init_race(self) -> None:
         statuses: list[int] = []
@@ -198,12 +251,19 @@ class WatchApiTestCase(unittest.TestCase):
         self.assertEqual(detail["id"], event.id)
         self.assertEqual(detail["latest_review"]["decision"], "buyable")
 
-        target_detail_resp = self.client.get(f"/api/v1/watch/targets/{target.id}/detail", params={"window": 7})
+        target_detail_resp = self.client.get(
+            f"/api/v1/watch/targets/{target.id}/detail",
+            params={"timeframe": "day", "window": "30"},
+        )
         self.assertEqual(target_detail_resp.status_code, 200)
         target_detail = target_detail_resp.json()
         self.assertEqual(target_detail["target"]["id"], target.id)
-        self.assertEqual(len(target_detail["kline"]), 7)
+        self.assertEqual(len(target_detail["kline"]), 30)
         self.assertEqual(target_detail["latest_review"]["decision"], "buyable")
+        self.assertIn("overlays", target_detail)
+        self.assertIn("sub_indicators", target_detail)
+        self.assertIn("quote_snapshot", target_detail)
+        self.assertIn("meta", target_detail)
 
         async def _read_first_chunk():
             response = await watch_stream(bus=WatchEventBus())
@@ -211,6 +271,54 @@ class WatchApiTestCase(unittest.TestCase):
 
         chunk = asyncio.run(_read_first_chunk())
         self.assertIn("event: watch.connected", chunk)
+
+    def test_target_detail_endpoint_supports_extended_timeframes_and_fields(self) -> None:
+        self._save_history("600519", days=320)
+        target = WatchlistService(db_manager=self.db).create_target("600519", display_name="贵州茅台")
+        repo = WatchRepository(self.db)
+        self.app.state.watch_detail_service = WatchDetailService(
+            db_manager=self.db,
+            repo=repo,
+            quote_loader=lambda code: SimpleNamespace(
+                code=code,
+                price=58.0,
+                pre_close=57.0,
+                open_price=57.4,
+                high=58.6,
+                low=56.8,
+                volume=2_500_000,
+                change_pct=1.75,
+                change_amount=1.0,
+                amplitude=3.16,
+            ),
+        )
+
+        day_resp = self.client.get(
+            f"/api/v1/watch/targets/{target.id}/detail",
+            params={"timeframe": "day", "window": "60"},
+        )
+        self.assertEqual(day_resp.status_code, 200)
+        day_payload = day_resp.json()
+        self.assertEqual(day_payload["meta"]["timeframe"], "day")
+        self.assertEqual(day_payload["meta"]["window"], "60")
+        self.assertEqual(day_payload["meta"]["barCount"], 60)
+        self.assertEqual(len(day_payload["overlays"]["ma5"]), 60)
+        self.assertEqual(day_payload["quoteSnapshot"]["prevClose"], 57.0)
+
+        intraday_resp = self.client.get(
+            f"/api/v1/watch/targets/{target.id}/detail",
+            params={"timeframe": "intraday", "window": "250"},
+        )
+        self.assertEqual(intraday_resp.status_code, 200)
+        intraday_payload = intraday_resp.json()
+        self.assertEqual(intraday_payload["meta"]["timeframe"], "intraday")
+        self.assertGreaterEqual(intraday_payload["meta"]["barCount"], 1)
+
+        invalid_resp = self.client.get(
+            f"/api/v1/watch/targets/{target.id}/detail",
+            params={"timeframe": "day", "window": "14"},
+        )
+        self.assertEqual(invalid_resp.status_code, 422)
 
     def test_list_targets_exposes_flattened_summary_contract(self) -> None:
         watchlist_service = WatchlistService(db_manager=self.db)
@@ -241,10 +349,10 @@ class WatchApiTestCase(unittest.TestCase):
 
         detail_resp = self.client.get(
             f"/api/v1/watch/targets/{target.id}/detail",
-            params={"window": 7},
+            params={"timeframe": "day", "window": "30"},
         )
         self.assertEqual(detail_resp.status_code, 200)
-        self.assertEqual(len(detail_resp.json()["kline"]), 7)
+        self.assertEqual(len(detail_resp.json()["kline"]), 30)
 
     def test_theme_target_detail_supports_member_code(self) -> None:
         watchlist_service = WatchlistService(db_manager=self.db)
@@ -253,7 +361,7 @@ class WatchApiTestCase(unittest.TestCase):
 
         detail_resp = self.client.get(
             f"/api/v1/watch/targets/{target.id}/detail",
-            params={"window": 30, "member_code": "603019"},
+            params={"timeframe": "day", "window": "60", "member_code": "603019"},
         )
         self.assertEqual(detail_resp.status_code, 200)
         detail = detail_resp.json()
@@ -261,11 +369,21 @@ class WatchApiTestCase(unittest.TestCase):
         self.assertEqual(detail["active_member"]["member_code"], "603019")
         self.assertGreaterEqual(len(detail["member_options"]), 1)
 
+        single_scan_resp = self.client.post(f"/api/v1/watch/targets/{target.id}/scan")
+        self.assertEqual(single_scan_resp.status_code, 200)
+        self.assertEqual(single_scan_resp.json()["processed_targets"], 1)
+
         invalid_resp = self.client.get(
             f"/api/v1/watch/targets/{target.id}/detail",
-            params={"window": 14},
+            params={"timeframe": "day", "window": "14"},
         )
         self.assertEqual(invalid_resp.status_code, 422)
+
+        invalid_tf_resp = self.client.get(
+            f"/api/v1/watch/targets/{target.id}/detail",
+            params={"timeframe": "year", "window": "30"},
+        )
+        self.assertEqual(invalid_tf_resp.status_code, 422)
 
 
 if __name__ == "__main__":

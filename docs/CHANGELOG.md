@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [改进] `/watch` 页面新增跟踪目标近 7 个交易日整体分析摘要，并支持点击目标后在页内展开 `7日 / 30日` K 线图、MA/MACD/RSI/量价策略指标、theme 代表成员切换与最新复核结论展示。
 - [修复] `/watch` 目标摘要与详情接口补齐稳定契约：首次并发访问不再触发数据库初始化竞态，后台扫描会刷新目标 7 日摘要，详情仅接受 `7日 / 30日` 两档窗口，并按当前成员返回支撑/压力位与最新复核结论。
 - [文档] 补充连续跟踪模块说明：在 `.env.example`、`docs/full-guide.md` 与 `docs/full-guide_EN.md` 新增 `WATCHLIST_SCAN_INTERVAL_MINUTES` 配置及 `/watch` 页面使用说明。
+- [改进] `/watch` 升级为三栏连续跟踪工作台：支持手动“刷新数据”、`全量扫描一次`、双入口 `仅扫描当前目标`、相关 SSE 事件后自动刷新详情，并在右侧补充连接状态/最后扫描/最近错误。
+- [改进] `/watch` 行情区改为接近同花顺个股页的基础排版：支持 `分时 / 日K / 周K / 月K`、`30 / 60 / 120 / 250 / 年内`、主图 MA5/10/20 与 `VOL / MACD / RSI` 副图切换。
+- [修复] `/watch` 前后端 detail 契约扩展为 `timeframe/window` 与 `overlays/subIndicators/quoteSnapshot/meta`，并新增 `POST /api/v1/watch/runtime/scan`、`POST /api/v1/watch/targets/{id}/scan` 以支持运行态关闭时的手动扫描。
+- [修复] 修正 `/watch` 工作台 3 处可见正确性问题：周/月线前端不再对已按周期返回的 `detail.kline` 二次聚合；日/周/月展示帧改为应用实时 quote；强上涨场景下 RSI 在 `avg_loss=0` 时保持为 `100` 而非错误回落到 `0`。
 - [修复] `EfinanceFetcher.get_main_indices()` 对东方财富指数实时行情的开盘价映射改为兼容 `今开 -> 开盘 -> open`，修复部分 `efinance` 版本下指数开盘价被读成缺失值的问题（fixes #1043）
 - [修复] OpenAI Compatible 渠道现在会把 `glm-5.1` 这类裸模型名与声明中的 `openai/<model>` 视为等价，修复 Web 设置页和配置校验误报“主模型未出现在当前渠道中”的问题；同步补充 `api.udcode.cn` 一类网关的接入示例文档。
 - [修复] `AGENT_MAX_STEPS` 在 orchestrator 多 Agent 模式下统一明确为“默认作为各子 Agent 的步数上限而非硬覆盖；TechnicalAgent 等高默认值 Agent 会被封顶、低默认值 Agent 保持原值；当用户主动调高（>10）时，再统一覆盖所有子 Agent 采用全局值”，同时修复用户设置 12 但 TechnicalAgent 仍以默认 6 步运行并报 "Agent exceeded max steps" 的问题（fixes #1026）

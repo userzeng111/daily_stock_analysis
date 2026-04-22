@@ -1,7 +1,11 @@
 import apiClient from './index';
 import { toCamelCase } from './utils';
 import type {
+  WatchChartPeriod,
+  WatchDayRange,
+  WatchQuoteSnapshot,
   WatchRuntimeStatus,
+  WatchScanActionResponse,
   WatchSignalEventDetail,
   WatchSignalEventListResponse,
   WatchTargetCreateRequest,
@@ -9,6 +13,50 @@ import type {
   WatchTargetItem,
   WatchTargetListResponse,
 } from '../types/watch';
+
+const normalizeWatchQuote = (
+  detail: WatchTargetDetail,
+  quoteSnapshot?: WatchQuoteSnapshot | null,
+): WatchQuoteSnapshot | null => {
+  const lastBar = detail.kline[detail.kline.length - 1];
+  const previousBar = detail.kline[detail.kline.length - 2];
+  if (!lastBar && !quoteSnapshot) return null;
+
+  const prevClose = quoteSnapshot?.prevClose ?? previousBar?.close ?? lastBar?.open ?? null;
+  const latestPrice = quoteSnapshot?.latestPrice ?? lastBar?.close ?? null;
+  const changeAmount =
+    quoteSnapshot?.changeAmount
+    ?? quoteSnapshot?.change
+    ?? (latestPrice != null && prevClose != null ? latestPrice - prevClose : null);
+  const changePct =
+    quoteSnapshot?.changePct
+    ?? (changeAmount != null && prevClose ? (changeAmount / prevClose) * 100 : null);
+
+  return {
+    latestPrice,
+    change: changeAmount,
+    changeAmount,
+    changePct,
+    amplitude: quoteSnapshot?.amplitude ?? null,
+    high: quoteSnapshot?.high ?? lastBar?.high ?? null,
+    low: quoteSnapshot?.low ?? lastBar?.low ?? null,
+    open: quoteSnapshot?.open ?? lastBar?.open ?? null,
+    prevClose,
+    volume: quoteSnapshot?.volume ?? lastBar?.volume ?? null,
+    turnover: quoteSnapshot?.turnover ?? null,
+  };
+};
+
+const normalizeWatchTargetDetail = (detail: WatchTargetDetail): WatchTargetDetail => {
+  const quoteSnapshot = normalizeWatchQuote(detail, detail.quoteSnapshot ?? detail.quote ?? null);
+
+  return {
+    ...detail,
+    chartType: detail.chartType ?? (detail.meta?.timeframe === 'intraday' ? 'line' : 'candlestick'),
+    quote: quoteSnapshot,
+    quoteSnapshot,
+  };
+};
 
 export const watchApi = {
   getTargets: async (params: {
@@ -43,17 +91,19 @@ export const watchApi = {
   getTargetDetail: async (
     targetId: number,
     params: {
-      window: 7 | 30;
       memberCode?: string;
-    },
+      period?: WatchChartPeriod;
+      range?: WatchDayRange;
+    } = {},
   ): Promise<WatchTargetDetail> => {
     const response = await apiClient.get<Record<string, unknown>>(`/api/v1/watch/targets/${targetId}/detail`, {
       params: {
-        window: params.window,
         member_code: params.memberCode,
+        timeframe: params.period,
+        window: params.range,
       },
     });
-    return toCamelCase<WatchTargetDetail>(response.data);
+    return normalizeWatchTargetDetail(toCamelCase<WatchTargetDetail>(response.data));
   },
 
   getEvents: async (params: {
@@ -92,6 +142,16 @@ export const watchApi = {
   stopRuntime: async (): Promise<WatchRuntimeStatus> => {
     const response = await apiClient.post<Record<string, unknown>>('/api/v1/watch/runtime/stop');
     return toCamelCase<WatchRuntimeStatus>(response.data);
+  },
+
+  scanAllTargetsOnce: async (): Promise<WatchScanActionResponse> => {
+    const response = await apiClient.post<Record<string, unknown>>('/api/v1/watch/runtime/scan');
+    return toCamelCase<WatchScanActionResponse>(response.data);
+  },
+
+  scanTargetOnce: async (targetId: number): Promise<WatchScanActionResponse> => {
+    const response = await apiClient.post<Record<string, unknown>>(`/api/v1/watch/targets/${targetId}/scan`);
+    return toCamelCase<WatchScanActionResponse>(response.data);
   },
 
   getStreamUrl: (): string => '/api/v1/watch/stream',

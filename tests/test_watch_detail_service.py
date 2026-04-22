@@ -7,6 +7,7 @@ import os
 import tempfile
 import unittest
 from datetime import date, timedelta
+from types import SimpleNamespace
 
 import pandas as pd
 
@@ -22,7 +23,7 @@ from src.stock_analyzer import (
 from src.storage import DatabaseManager
 
 
-def _make_daily_df(*, start_close: float, slope: float, days: int = 35) -> pd.DataFrame:
+def _make_daily_df(*, start_close: float, slope: float, days: int = 260) -> pd.DataFrame:
     start = date(2026, 3, 1)
     rows = []
     close = start_close
@@ -40,6 +41,33 @@ def _make_daily_df(*, start_close: float, slope: float, days: int = 35) -> pd.Da
             }
         )
     return pd.DataFrame(rows)
+
+
+def _make_quote(
+    *,
+    code: str,
+    price: float,
+    pre_close: float,
+    open_price: float,
+    high: float,
+    low: float,
+    volume: int,
+    change_pct: float,
+    change_amount: float,
+    amplitude: float,
+):
+    return SimpleNamespace(
+        code=code,
+        price=price,
+        pre_close=pre_close,
+        open_price=open_price,
+        high=high,
+        low=low,
+        volume=volume,
+        change_pct=change_pct,
+        change_amount=change_amount,
+        amplitude=amplitude,
+    )
 
 
 def _make_result(code: str, *, signal_score: int, buy_signal: BuySignal = BuySignal.BUY) -> TrendAnalysisResult:
@@ -102,7 +130,88 @@ class WatchDetailServiceTestCase(unittest.TestCase):
         DatabaseManager.reset_instance()
         self._temp_dir.cleanup()
 
-    def test_stock_target_detail_supports_7_and_30_day_windows(self) -> None:
+    def test_detail_supports_extended_timeframes_and_contract_fields(self) -> None:
+        from src.repositories.watch_repo import WatchRepository
+        from src.services.watch_detail_service import WatchDetailService
+        from src.services.watch_summary_service import WatchSummaryService
+        from src.services.watchlist_service import WatchlistService
+
+        repo = WatchRepository(self.db)
+        history_map = {"600519": _make_daily_df(start_close=10.0, slope=0.15, days=320)}
+        analyzer = _FakeTrendAnalyzer({"600519": _make_result("600519", signal_score=88)})
+        summary_service = WatchSummaryService(
+            db_manager=self.db,
+            repo=repo,
+            trend_analyzer=analyzer,
+            history_loader=lambda code, lookback_bars: history_map[code].tail(lookback_bars).copy(),
+        )
+        watchlist_service = WatchlistService(db_manager=self.db, repo=repo, summary_service=summary_service)
+        target = watchlist_service.create_target("600519", display_name="贵州茅台")
+
+        detail_service = WatchDetailService(
+            db_manager=self.db,
+            repo=repo,
+            trend_analyzer=analyzer,
+            history_loader=lambda code, lookback_bars: history_map[code].tail(lookback_bars).copy(),
+            quote_loader=lambda code: _make_quote(
+                code=code,
+                price=58.0,
+                pre_close=57.0,
+                open_price=57.4,
+                high=58.6,
+                low=56.8,
+                volume=2_500_000,
+                change_pct=1.75,
+                change_amount=1.0,
+                amplitude=3.16,
+            ),
+        )
+
+        detail_day = detail_service.get_target_detail(target.id, timeframe="day", window="60")
+        self.assertEqual(detail_day["meta"]["timeframe"], "day")
+        self.assertEqual(detail_day["meta"]["window"], "60")
+        self.assertEqual(detail_day["meta"]["barCount"], 60)
+        self.assertEqual(len(detail_day["kline"]), 60)
+        self.assertEqual(len(detail_day["overlays"]["ma5"]), 60)
+        self.assertEqual(len(detail_day["overlays"]["ma10"]), 60)
+        self.assertEqual(len(detail_day["overlays"]["ma20"]), 60)
+        self.assertEqual(len(detail_day["subIndicators"]["volMa"]), 60)
+        self.assertEqual(len(detail_day["subIndicators"]["macd"]["dif"]), 60)
+        self.assertEqual(len(detail_day["subIndicators"]["macd"]["dea"]), 60)
+        self.assertEqual(len(detail_day["subIndicators"]["macd"]["bar"]), 60)
+        self.assertEqual(len(detail_day["subIndicators"]["rsi"]["rsi6"]), 60)
+        self.assertEqual(len(detail_day["subIndicators"]["rsi"]["rsi12"]), 60)
+        self.assertEqual(len(detail_day["subIndicators"]["rsi"]["rsi24"]), 60)
+        self.assertEqual(detail_day["quoteSnapshot"]["prevClose"], 57.0)
+        self.assertEqual(detail_day["quoteSnapshot"]["changeAmount"], 1.0)
+        self.assertEqual(detail_day["quoteSnapshot"]["changePct"], 1.75)
+        self.assertEqual(detail_day["quoteSnapshot"]["amplitude"], 3.16)
+        self.assertTrue(detail_day["meta"]["updatedAt"])
+
+        detail_week = detail_service.get_target_detail(target.id, timeframe="week", window="30")
+        self.assertEqual(detail_week["meta"]["timeframe"], "week")
+        self.assertEqual(detail_week["meta"]["window"], "30")
+        self.assertGreater(detail_week["meta"]["barCount"], 0)
+        self.assertLessEqual(detail_week["meta"]["barCount"], 30)
+
+        detail_month = detail_service.get_target_detail(target.id, timeframe="month", window="ytd")
+        self.assertEqual(detail_month["meta"]["timeframe"], "month")
+        self.assertEqual(detail_month["meta"]["window"], "ytd")
+        self.assertGreater(detail_month["meta"]["barCount"], 0)
+
+        detail_intraday = detail_service.get_target_detail(target.id, timeframe="intraday", window="250")
+        self.assertEqual(detail_intraday["meta"]["timeframe"], "intraday")
+        self.assertEqual(detail_intraday["meta"]["window"], "250")
+        self.assertGreaterEqual(detail_intraday["meta"]["barCount"], 1)
+        self.assertEqual(len(detail_intraday["kline"]), detail_intraday["meta"]["barCount"])
+
+        with self.assertRaises(ValueError):
+            detail_service.get_target_detail(target.id, timeframe="year", window="30")
+
+        with self.assertRaises(ValueError):
+            detail_service.get_target_detail(target.id, timeframe="day", window="14")
+
+    def test_stock_target_detail_supports_timeframes_windows_and_series_payloads(self) -> None:
         from src.repositories.watch_repo import WatchRepository
         from src.services.watch_detail_service import WatchDetailService
         from src.services.watch_summary_service import WatchSummaryService
@@ -146,20 +255,154 @@ class WatchDetailServiceTestCase(unittest.TestCase):
             history_loader=lambda code, lookback_bars: history_map[code].copy(),
         )
 
-        detail_7 = detail_service.get_target_detail(target.id, window_days=7)
-        self.assertEqual(len(detail_7["kline"]), 7)
-        self.assertEqual(detail_7["active_member"]["member_code"], "600519")
-        self.assertEqual(detail_7["latest_review"]["decision"], "buyable")
-
-        detail_30 = detail_service.get_target_detail(target.id, window_days=30)
+        detail_30 = detail_service.get_target_detail(
+            target.id,
+            timeframe="day",
+            window="30",
+        )
         self.assertEqual(len(detail_30["kline"]), 30)
-        self.assertEqual(detail_30["summary"]["status"], "ready")
-        self.assertEqual(detail_30["indicators"]["buy_signal"], "买入")
-        self.assertTrue(detail_30["indicators"]["support_levels"])
-        self.assertTrue(detail_30["indicators"]["resistance_levels"])
+        self.assertEqual(detail_30["active_member"]["member_code"], "600519")
+        self.assertEqual(detail_30["latest_review"]["decision"], "buyable")
+        self.assertEqual(detail_30["meta"]["timeframe"], "day")
+        self.assertEqual(detail_30["meta"]["window"], "30")
+        self.assertEqual(len(detail_30["overlays"]["ma5"]), 30)
+        self.assertEqual(len(detail_30["sub_indicators"]["volume"]["bars"]), 30)
+        self.assertEqual(len(detail_30["sub_indicators"]["macd"]["dif"]), 30)
+        self.assertEqual(len(detail_30["sub_indicators"]["rsi"]["rsi6"]), 30)
+        self.assertIn("quote_snapshot", detail_30)
+
+        detail_250 = detail_service.get_target_detail(
+            target.id,
+            timeframe="day",
+            window="250",
+        )
+        self.assertEqual(len(detail_250["kline"]), 250)
+
+        detail_week = detail_service.get_target_detail(
+            target.id,
+            timeframe="week",
+            window="60",
+        )
+        self.assertEqual(detail_week["meta"]["timeframe"], "week")
+        self.assertGreaterEqual(len(detail_week["kline"]), 1)
+
+        detail_month = detail_service.get_target_detail(
+            target.id,
+            timeframe="month",
+            window="120",
+        )
+        self.assertEqual(detail_month["meta"]["timeframe"], "month")
+        self.assertGreaterEqual(len(detail_month["kline"]), 1)
+
+        detail_intraday = detail_service.get_target_detail(
+            target.id,
+            timeframe="intraday",
+            window="30",
+        )
+        self.assertEqual(detail_intraday["meta"]["timeframe"], "intraday")
+        self.assertEqual(detail_intraday["chart_type"], "line")
 
         with self.assertRaises(ValueError):
-            detail_service.get_target_detail(target.id, window_days=14)
+            detail_service.get_target_detail(target.id, timeframe="day", window="14")
+        with self.assertRaises(ValueError):
+            detail_service.get_target_detail(target.id, timeframe="year", window="30")
+
+    def test_display_frame_applies_live_quote_to_day_week_and_month_payloads(self) -> None:
+        from src.repositories.watch_repo import WatchRepository
+        from src.services.watch_detail_service import WatchDetailService
+        from src.services.watch_summary_service import WatchSummaryService
+        from src.services.watchlist_service import WatchlistService
+
+        repo = WatchRepository(self.db)
+        today = date.today()
+        start = today - timedelta(days=119)
+        close = 20.0
+        rows = []
+        for index in range(100):
+            current = start + timedelta(days=index)
+            close += 0.3
+            rows.append(
+                {
+                    "date": current,
+                    "open": close - 0.2,
+                    "high": close + 0.4,
+                    "low": close - 0.5,
+                    "close": close,
+                    "volume": 2_000_000 + index * 15_000,
+                }
+            )
+        history_map = {"600519": pd.DataFrame(rows)}
+        latest_close = float(history_map["600519"].iloc[-1]["close"])
+        quote = _make_quote(
+            code="600519",
+            price=latest_close + 3.0,
+            pre_close=latest_close,
+            open_price=latest_close + 0.8,
+            high=latest_close + 3.6,
+            low=latest_close - 0.4,
+            volume=3_600_000,
+            change_pct=5.0,
+            change_amount=3.0,
+            amplitude=6.1,
+        )
+        analyzer = _FakeTrendAnalyzer({"600519": _make_result("600519", signal_score=80)})
+        summary_service = WatchSummaryService(
+            db_manager=self.db,
+            repo=repo,
+            trend_analyzer=analyzer,
+            history_loader=lambda code, lookback_bars: history_map[code].tail(lookback_bars).copy(),
+        )
+        watchlist_service = WatchlistService(db_manager=self.db, repo=repo, summary_service=summary_service)
+        target = watchlist_service.create_target("600519", display_name="贵州茅台")
+        detail_service = WatchDetailService(
+            db_manager=self.db,
+            repo=repo,
+            trend_analyzer=analyzer,
+            history_loader=lambda code, lookback_bars: history_map[code].tail(lookback_bars).copy(),
+            quote_loader=lambda code: quote,
+        )
+
+        detail_day = detail_service.get_target_detail(target.id, timeframe="day", window="30")
+        self.assertEqual(detail_day["kline"][-1]["date"], today.isoformat())
+        self.assertEqual(detail_day["kline"][-1]["open"], quote.open_price)
+        self.assertEqual(detail_day["kline"][-1]["high"], quote.high)
+        self.assertEqual(detail_day["kline"][-1]["low"], quote.low)
+        self.assertEqual(detail_day["kline"][-1]["close"], quote.price)
+
+        detail_week = detail_service.get_target_detail(target.id, timeframe="week", window="30")
+        self.assertEqual(detail_week["kline"][-1]["close"], quote.price)
+
+        detail_month = detail_service.get_target_detail(target.id, timeframe="month", window="120")
+        self.assertEqual(detail_month["kline"][-1]["close"], quote.price)
+
+    def test_rsi_subindicator_preserves_100_when_window_has_no_losses(self) -> None:
+        from src.repositories.watch_repo import WatchRepository
+        from src.services.watch_detail_service import WatchDetailService
+        from src.services.watch_summary_service import WatchSummaryService
+        from src.services.watchlist_service import WatchlistService
+
+        repo = WatchRepository(self.db)
+        history_map = {"600519": _make_daily_df(start_close=10.0, slope=1.0, days=80)}
+        analyzer = _FakeTrendAnalyzer({"600519": _make_result("600519", signal_score=96)})
+        summary_service = WatchSummaryService(
+            db_manager=self.db,
+            repo=repo,
+            trend_analyzer=analyzer,
+            history_loader=lambda code, lookback_bars: history_map[code].tail(lookback_bars).copy(),
+        )
+        watchlist_service = WatchlistService(db_manager=self.db, repo=repo, summary_service=summary_service)
+        target = watchlist_service.create_target("600519", display_name="贵州茅台")
+        detail_service = WatchDetailService(
+            db_manager=self.db,
+            repo=repo,
+            trend_analyzer=analyzer,
+            history_loader=lambda code, lookback_bars: history_map[code].tail(lookback_bars).copy(),
+        )
+
+        detail = detail_service.get_target_detail(target.id, timeframe="day", window="30")
+        self.assertEqual(detail["subIndicators"]["rsi"]["rsi6"][-1], 100.0)
+        self.assertEqual(detail["subIndicators"]["rsi"]["rsi12"][-1], 100.0)
+        self.assertEqual(detail["subIndicators"]["rsi"]["rsi24"][-1], 100.0)
 
     def test_theme_detail_uses_selected_member_and_member_scoped_latest_review(self) -> None:
         from src.repositories.watch_repo import WatchRepository
@@ -241,15 +484,20 @@ class WatchDetailServiceTestCase(unittest.TestCase):
             history_loader=lambda code, lookback_bars: history_map[code].copy(),
         )
 
-        default_detail = detail_service.get_target_detail(target.id, window_days=7)
+        default_detail = detail_service.get_target_detail(target.id, timeframe="day", window="30")
         self.assertEqual(default_detail["active_member"]["member_code"], "000977")
         self.assertEqual(default_detail["latest_review"]["decision"], "buyable")
         self.assertGreaterEqual(len(default_detail["member_options"]), 4)
 
-        switched_detail = detail_service.get_target_detail(target.id, window_days=30, member_code="603019")
+        switched_detail = detail_service.get_target_detail(
+            target.id,
+            timeframe="day",
+            window="60",
+            member_code="603019",
+        )
         self.assertEqual(switched_detail["active_member"]["member_code"], "603019")
         self.assertEqual(switched_detail["latest_review"]["decision"], "watch_more")
-        self.assertEqual(len(switched_detail["kline"]), 30)
+        self.assertEqual(switched_detail["meta"]["window"], "60")
 
     def test_latest_review_lookup_is_member_scoped_without_page_truncation(self) -> None:
         from src.repositories.watch_repo import WatchRepository
@@ -324,7 +572,12 @@ class WatchDetailServiceTestCase(unittest.TestCase):
             history_loader=lambda code, lookback_bars: history_map[code].copy(),
         )
 
-        switched_detail = detail_service.get_target_detail(target.id, window_days=7, member_code="603019")
+        switched_detail = detail_service.get_target_detail(
+            target.id,
+            timeframe="day",
+            window="30",
+            member_code="603019",
+        )
         self.assertEqual(switched_detail["active_member"]["member_code"], "603019")
         self.assertEqual(switched_detail["latest_review"]["decision"], "watch_more")
 

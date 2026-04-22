@@ -19,6 +19,8 @@ from api.deps import (
 )
 from api.v1.schemas.common import ErrorResponse, SuccessResponse
 from api.v1.schemas.watch import (
+    WatchRuntimeScanResponse,
+    WatchRuntimeScanResult,
     WatchRuntimeStatusResponse,
     WatchTargetDetailResponse,
     WatchSignalEventDetail,
@@ -144,17 +146,30 @@ def get_watch_target(
 )
 def get_watch_target_detail(
     target_id: int,
-    window: int = Query(7, ge=7, le=30),
+    timeframe: str = Query("day"),
+    window: str = Query("30"),
     member_code: Optional[str] = Query(None),
     detail_service: WatchDetailService = Depends(get_watch_detail_service),
 ) -> WatchTargetDetailResponse:
-    if window not in {7, 30}:
+    normalized_timeframe = str(timeframe or "day").strip().lower()
+    normalized_window = str(window or "30").strip().lower()
+    if normalized_timeframe not in {"intraday", "day", "week", "month"}:
         raise HTTPException(
             status_code=422,
-            detail={"error": "validation_error", "message": "window must be 7 or 30"},
+            detail={"error": "validation_error", "message": "timeframe must be intraday/day/week/month"},
+        )
+    if normalized_window not in {"7", "30", "60", "120", "250", "ytd"}:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "validation_error", "message": "window must be one of 7/30/60/120/250/ytd"},
         )
     try:
-        detail = detail_service.get_target_detail(target_id, window_days=window, member_code=member_code)
+        detail = detail_service.get_target_detail(
+            target_id,
+            timeframe=normalized_timeframe,
+            window=normalized_window,
+            member_code=member_code,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail={"error": "not_found", "message": str(exc)})
 
@@ -169,8 +184,15 @@ def get_watch_target_detail(
         member_options=member_options,
         active_member=active_member,
         kline=detail["kline"],
+        chart_type=detail["chart_type"],
         indicators=detail["indicators"],
         strategy_insights=detail["strategy_insights"],
+        overlays=detail["overlays"],
+        sub_indicators=detail["sub_indicators"],
+        subIndicators=detail["subIndicators"],
+        quote_snapshot=detail["quote_snapshot"],
+        quoteSnapshot=detail["quoteSnapshot"],
+        meta=detail["meta"],
         latest_review=latest_review,
     )
 
@@ -226,6 +248,46 @@ def stop_watch_runtime(
     runtime: WatchRuntimeService = Depends(get_watch_runtime_service),
 ) -> WatchRuntimeStatusResponse:
     return WatchRuntimeStatusResponse(**runtime.stop())
+
+
+@router.post("/runtime/scan", response_model=WatchRuntimeScanResponse)
+def scan_watch_runtime(
+    runtime: WatchRuntimeService = Depends(get_watch_runtime_service),
+) -> WatchRuntimeScanResponse:
+    scan = runtime.scan_all_targets()
+    return WatchRuntimeScanResponse(
+        target_id=scan.get("target_id"),
+        processed_targets=int(scan.get("processed_targets", 0)),
+        emitted_events=int(scan.get("emitted_events", 0)),
+        last_scan_at=scan.get("last_scan_at"),
+        last_error=scan.get("last_error"),
+        runtime=WatchRuntimeStatusResponse(**runtime.status()),
+        scan=WatchRuntimeScanResult(**scan),
+    )
+
+
+@router.post(
+    "/targets/{target_id}/scan",
+    response_model=WatchRuntimeScanResponse,
+    responses={404: {"description": "未找到", "model": ErrorResponse}},
+)
+def scan_watch_target(
+    target_id: int,
+    runtime: WatchRuntimeService = Depends(get_watch_runtime_service),
+) -> WatchRuntimeScanResponse:
+    try:
+        scan = runtime.scan_target(target_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail={"error": "not_found", "message": str(exc)})
+    return WatchRuntimeScanResponse(
+        target_id=scan.get("target_id"),
+        processed_targets=int(scan.get("processed_targets", 0)),
+        emitted_events=int(scan.get("emitted_events", 0)),
+        last_scan_at=scan.get("last_scan_at"),
+        last_error=scan.get("last_error"),
+        runtime=WatchRuntimeStatusResponse(**runtime.status()),
+        scan=WatchRuntimeScanResult(**scan),
+    )
 
 
 @router.get("/events", response_model=WatchSignalEventListResponse)
