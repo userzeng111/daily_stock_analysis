@@ -8,4 +8,4 @@ BackTestSystem 子模块回测平台建设
 
 # 当前状态
 
-进行中：已完成主项目指标能力、BackTestSystem 数据样例、现有前端/回测链路的并行勘察，并已产出设计文档 `docs/superpowers/specs/2026-04-22-backtest-system-design.md`；当前正在进行 spec 审阅，待用户确认后进入实现计划。
+进行中：已完成设计文档 `docs/superpowers/specs/2026-04-22-backtest-system-design.md` 与实现计划 `docs/superpowers/plans/2026-04-22-backtest-system-implementation.md`，当前等待用户选择执行方式后进入 BackTestSystem 基础依赖和分层脚手架搭建。
